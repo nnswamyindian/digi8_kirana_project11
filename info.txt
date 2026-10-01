@@ -1,0 +1,207 @@
+# 📖 Complete Multi-Tenant Platform Guide: Logins, Roles, Workflows & Features
+
+This platform is a **Production-Ready Multi-Tenant Kirana/Grocery Store Management, POS Billing, Online Commerce, and Real-Time Delivery SaaS Platform**.
+
+The system currently runs locally at:
+- **Frontend / Storefront:** http://localhost:5173/
+- **Backend API:** http://localhost:5000/api
+- **Health Check:** http://localhost:5000/api/platform/health
+- **Platform Stats:** http://localhost:5000/api/platform/stats
+
+---
+
+## 🔑 1. All Logins & Credentials Reference
+
+Authentication uses **Registered Mobile Number + 4-digit Security PIN**. Every role has pre-seeded credentials with instant 1-click preset buttons inside the login modal.
+
+| Role | Name / Title | Tenant / Store | Registered Mobile | Security PIN | Access Level & Permissions |
+|:---|:---|:---|:---:|:---:|:---|
+| **🌐 Platform Super Admin** | Platform Administrator | Global (All Tenants) | `9999999999` | `9999` | **Full Platform Control:** Provision stores, view all-store GMV, suspend/activate stores, change subscription tiers, view platform audit logs. |
+| **👑 Store Owner (001)** | Ramesh Patel | Apna Kirana & Supermarket (`store_royal_001`) | `9876543210` | `1234` | **Full Store Control:** POS billing, manager discount overrides (>5%), inventory, purchasing, staff, printer, UPI/Razorpay settings, Khata ledger. |
+| **🛡️ Store Manager / Sub-Admin** | Anil Sharma | Apna Kirana & Supermarket (`store_royal_001`) | `9876543211` | `1234` | **Store Management:** Inventory adjustments, supplier purchases, manager PIN authorization for cashier POS discounts, order dispatch. |
+| **💵 Cashier** | Priya Verma | Apna Kirana & Supermarket (`store_royal_001`) | `9876543212` | `1234` | **POS Billing Counter:** Barcode scanning, customer phone lookup, cash/UPI billing, item discounts up to 5% (prompts Manager PIN if >5%). |
+| **🛵 Delivery Rider #1** | Ravi Kumar | Apna Kirana & Supermarket (`store_royal_001`) | `9876543213` | `1234` | **Mobile Delivery Portal:** View assigned deliveries, navigation, status updates (`OUT_FOR_DELIVERY` ➔ `DELIVERED`), doorstep COD cash collection. |
+| **🛵 Delivery Rider #2** | Suresh Goud | Apna Kirana & Supermarket (`store_royal_001`) | `9876543214` | `1234` | **Mobile Delivery Portal:** Second active delivery rider with independent cash collection tracking. |
+| **🏪 Store Owner (002)** | Vikram Rao | Fresh Mart Superstore (`store_fresh_002`) | `9848012345` | `1234` | **Tenant 2 Owner (Blue Branding):** Completely isolated catalog, separate Hitec City delivery zones, independent UPI and revenue reporting. |
+| **✨ Registered Tenant Owner** | Royal Star | New Store (`store_uz9ef9b`) | `9666252024` | `1111` | **Custom Tenant:** Created via self-serve onboarding wizard with custom branding and catalog. |
+| **🛒 Online Shopper / Customer** | Public Shopper | Any Storefront | *No PIN needed* | *No PIN needed* | Browse catalog, select loose item weights, add to cart, check delivery radius, order via COD/UPI/Card, live GPS tracking. |
+
+---
+
+## 🚪 2. How to Access & Log In (Step-by-Step)
+
+### Procedure A: Logging in as Platform Super Admin
+1. Open your browser at http://localhost:5173/.
+2. In the top-right corner of the navbar, click the **"Store Login"** button (or click **"Staff Login"** in the footer).
+3. The **Staff & Delivery Partner Login** modal will appear.
+4. Click the blue preset button **`🌐 Platform Admin`** (this automatically populates Phone: `9999999999` and PIN: `9999`).
+5. Click **"Sign In"**.
+6. You will be redirected directly to the **Platform Admin Portal** (`adminTab: 'platform'`), where you can:
+   - View aggregate metrics: Total Platform GMV, Total Orders, Active Stores, Suspended Stores.
+   - View Subscription Plan distribution (FREE, STARTER, GROWTH, PRO, ENTERPRISE).
+   - Suspend or Activate any tenant instantly with a single click.
+   - Upgrade or Downgrade store subscription plans.
+   - Inspect the real-time SaaS Security & Audit Log.
+
+---
+
+### Procedure B: Logging in as Store Owner / Manager / Cashier
+1. Go to http://localhost:5173/.
+2. Click **"Store Login"** in the top-right navbar.
+3. Select your desired demo role button:
+   - **`👑 Royal Kirana`** (Owner: `9876543210` / `1234`)
+   - **`🏪 Fresh Mart Owner`** (Tenant 002: `9848012345` / `1234`)
+   - **`🛡️ Store Manager`** (Manager: `9876543211` / `1234`)
+   - **`💵 Cashier`** (Cashier: `9876543212` / `1234`)
+4. Click **"Sign In"**.
+5. You will enter the **Admin & POS Dashboard**:
+   - The left sidebar provides access to all store modules.
+   - The top header has a **Store Switcher dropdown** allowing you to switch between stores on the fly.
+   - To return to the customer storefront anytime, click **"Back to Store"** in the header.
+
+---
+
+### Procedure C: Logging in as a Delivery Rider
+1. Click **"Store Login"** on the storefront.
+2. Click the quick button **`🛵 Delivery Rider`** (Phone: `9876543213` / `1234`).
+3. Click **"Sign In"**.
+4. The system automatically detects the delivery role and launches the **Mobile Delivery Partner Portal**:
+   - Shows active assigned delivery orders.
+   - Customer name, address, and Google Maps callout.
+   - Order status action buttons: **"Start Delivery"** ➔ **"Mark Delivered"**.
+   - Doorstep COD Cash Collection calculator.
+   - Cash handover to store manager button.
+   - Online / Offline availability toggle.
+
+---
+
+### Procedure D: Self-Serve Store Registration & 10-Step Onboarding
+1. On the customer storefront, look at the top announcement bar.
+2. Click **"✨ Register Store"** (or click **"+ Store"** in the Admin Header).
+3. The **Interactive 10-Step Onboarding Wizard (`1/10` to `10/10`)** opens:
+   - **Step 1:** Store Identity (Business Name, Slug, Category)
+   - **Step 2:** Media Assets (Logo URL, Store Banner)
+   - **Step 3:** Brand Colors (Interactive Primary, Secondary, Button color pickers with real-time preview)
+   - **Step 4:** Physical Address (Shop address, City, Pincode)
+   - **Step 5:** Legal & Tax (GSTIN, FSSAI registration)
+   - **Step 6:** Payment Gateways (Store UPI ID, Cash on Delivery, Razorpay keys)
+   - **Step 7:** Delivery Settings (Delivery charge, Free delivery minimum, Estimated delivery time)
+   - **Step 8:** First Category (e.g., Staples, Snacks, Dairy)
+   - **Step 9:** First Product (Name, unit, purchase cost, selling price, barcode)
+   - **Step 10:** Staff Credentials & Launch (Owner sets Cashier name, phone & PIN, then clicks Launch with celebratory confetti).
+4. The store is immediately provisioned, isolated, and active with its own brand theme!
+
+---
+
+## 🔄 3. End-to-End Operational Flows
+
+### Flow 1: In-Store POS Billing with Item-Level Discount & Manager PIN
+1. Log in as **Cashier** (`9876543212` / `1234`) or **Owner** (`9876543210` / `1234`).
+2. Click **"POS Terminal"** in the sidebar.
+3. Add products to the bill via barcode scanner simulation, search bar, or category buttons.
+4. On any cart item, click the **`% Discount`** badge:
+   - **Flat Discount (₹):** Enter amount (e.g. ₹10 off).
+   - **Percentage Discount (%):** Enter discount % (e.g. 5% off).
+   - **Direct Price Negotiation:** Directly edit the unit selling price.
+5. **Enforcement Limit:**
+   - If the discount is **≤ 5%**, it applies immediately under cashier privileges.
+   - If the discount is **> 5%**, an amber alert appears stating *"Manager PIN Approval Required (Cashier Limit: 5%)"*.
+   - A modal prompts for the **Manager PIN**. Enter `1234` (Store Owner/Manager) or `9999` (Platform Admin).
+   - Once verified, the discount is stamped with authorizing manager metadata and reason.
+6. Select Payment Method (**Cash**, **Store UPI QR**, **Khata Credit / Udhar**, or **Card**).
+7. Click **"Complete Sale"**:
+   - Physical stock is decremented immediately.
+   - Thermal invoice receipt generates with itemized discounts and savings summary.
+   - Server validates the entire calculation authoritatively.
+
+---
+
+### Flow 2: Online Customer Order to Doorstep Delivery
+1. Open the storefront as a customer (http://localhost:5173/).
+2. Filter by category, or click **"Loose (Per KG)"** to order weighed staples (e.g. 500g Toor Dal).
+3. Click **"Cart"** ➔ **"Proceed to Checkout"**.
+4. Enter Name, Phone number, and Delivery Address.
+5. Select Payment Method:
+   - **Cash on Delivery (COD)**
+   - **Direct UPI QR** (generates NPCI dynamic QR code)
+   - **Online Razorpay**
+6. Click **"Place Order"**:
+   - Order chime sound triggers on all active store owner dashboards via Server-Sent Events (SSE).
+   - Customer receives Order ID (e.g. `#POS-1019`) and can click **"Track Order"** at any time.
+7. Store Admin opens **"Orders Management"**:
+   - Accepts order and assigns to **Delivery Rider (Ravi Kumar)**.
+8. Rider logs in on the **Delivery Portal**:
+   - Sees the order, taps **"Out for Delivery"**.
+   - Arrives at doorstep, collects cash, and records exact amount collected.
+   - Taps **"Mark Delivered"**.
+9. Store Admin views **"Payments & Reconciliation"**:
+   - Sees the collected cash under Rider Ravi's session and approves the cash handover.
+
+---
+
+### Flow 3: Platform Admin Tenant Management & Suspension
+1. Log in with Platform Admin credentials (`9999999999` / `9999`).
+2. Go to **"SaaS Platform Admin"** tab.
+3. Review the store directory:
+   - To suspend a store (e.g., non-payment or audit violation): Click the **"Suspend"** button next to that tenant.
+   - Instantly, any customer visiting that store's URL or staff trying to access that store is blocked by the **Store Suspended Screen**.
+4. To restore service: Click **"Activate"** in the Platform Admin dashboard; service is immediately restored with zero data loss.
+5. Change plans: Click the Plan badge to upgrade from **FREE** ➔ **GROWTH** ➔ **PRO**.
+
+---
+
+## 🌟 4. Complete Platform Features Inventory
+
+### 🖥️ A. Customer Storefront
+- **White-Label Dynamic Theme:** Automatically applies the store's primary, secondary, and button colors, logo, and title.
+- **Packaged & Loose Groceries:** Special weight selector modal for grains, pulses, and dry fruits (sold by 250g, 500g, 1kg, 2kg, 5kg).
+- **Instant Product Search:** Live autocomplete search across product names, brands, and barcodes.
+- **Dynamic Delivery Rules:** Validates delivery pincodes, enforces minimum order thresholds, and calculates free delivery progress.
+- **Multi-Gateway Checkout:** Supports Cash on Delivery, NPCI Dynamic UPI QR, and Razorpay.
+- **Visual Order Tracking:** Live status timeline, estimated delivery time countdown, and simulated rider transit.
+
+### 💼 B. POS Terminal & Retail Counter
+- **Rapid Item Scanning:** Supports physical USB/Bluetooth barcode scanners and manual barcode entry.
+- **Loose Item Weighing Scale:** Calculates dynamic prices by weight (KG/Grams).
+- **Line-Item Discounts:** Flat ₹, percentage %, and negotiated prices with cashier 5% permission limit and Manager PIN override modal.
+- **Customer Khata / Udhar:** Lookup customer by phone, view credit balance, and bill directly against their ledger.
+- **Thermal Receipt Printing:** ESC/POS formatting with store header, GST numbers, savings breakdown, and customizable 58mm/80mm widths.
+
+### 📦 C. Inventory & Supplier Master
+- **Multi-Price Architecture:** Maintains distinct Wholesale Price, Minimum Selling Price, POS Price, and Website Price per product.
+- **Stock Movement Ledger:** Complete audit trail tracking sales, returns, supplier purchases, and manual adjustments.
+- **Low-Stock Alerts:** Amber/red warnings when items drop below minimum safety stock levels.
+- **Barcode Generator:** Generates EAN-13 barcodes and printable barcode label sheets.
+
+### 🚚 D. Delivery & Logistics Hub
+- **Delivery Zone Radius:** Set delivery fees, minimum orders, and estimated delivery times per pincode zone.
+- **Rider Fleet Radar:** Real-time dashboard showing all active riders, availability, and active delivery transit.
+- **Doorstep COD Reconciliation:** Enforces cash tracking with tamper-proof delivery cash collection and manager handover sessions.
+
+### ⚙️ E. Platform Administration
+- **Tenant Isolation:** Every order, product, customer, and transaction is strictly isolated by `tenant_id`.
+- **Global Financial Visibility:** Cross-tenant GMV, transaction volume, and active subscriber metrics.
+- **Subdomain Routing & Custom Domains:** Supports `tenant.domain.com` or custom domains via Nginx reverse proxy.
+- **Comprehensive Audit Logs:** Tracks logins, price modifications, manager discount approvals, and store configuration changes.
+
+---
+
+## 📱 5. Mobile Application Architecture (`mobile/`)
+
+The mobile companion app is located in [`mobile/`](mobile/) (React Native + Expo):
+- **Customer App (`CustomerAppScreen.tsx`):** Native shopping experience with instant cart management and order tracking.
+- **Rider App (`DeliveryAgentAppScreen.tsx`):** Optimized for delivery personnel with turn-by-turn order details, GPS location pings (`mobileLocation.ts`), and COD cash entry.
+- **Deep Linking:** Configured with `kirana://store/{slug}` for direct store launches.
+
+---
+
+## 🛠️ Quick Commands Cheat Sheet
+
+| Task | Command |
+|:---|:---|
+| **Run Acceptance Test Suite (14 Tests)** | `node test_phase4_multi_tenant.cjs` |
+| **Inspect Running Dev Server** | Open `http://localhost:5173/` |
+| **Check Backend Health** | Open `http://localhost:5000/api/platform/health` |
+| **Check Platform Stats** | Open `http://localhost:5000/api/platform/stats` |
+| **Start Services Manually** | `npm run dev` |
+| **Deploy to VPS (Nginx + PM2)** | Run `deployment/deploy.sh` (see docs/HOSTINGER_VPS_DEPLOYMENT_GUIDE.md) |

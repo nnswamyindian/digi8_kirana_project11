@@ -1,0 +1,64 @@
+{
+  "expo": {
+    "name": "Kirana SaaS Mobile",
+    "slug": "kirana-saas-mobile",
+    "version": "4.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "kirana",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#059669"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.kirana.platform.mobile",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Your location is required to calculate accurate delivery ETA and navigate to customer addresses.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Delivery agent background location is used only during active out-for-delivery orders to broadcast live transit updates."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#059669"
+      },
+      "package": "com.kirana.platform.mobile",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "POST_NOTIFICATIONS",
+        "INTERNET"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [
+            { "scheme": "kirana" },
+            { "scheme": "https", "host": "*.platform.com", "pathPrefix": "/order" },
+            { "scheme": "https", "host": "*.platform.com", "pathPrefix": "/product" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Kirana Rider to share live GPS coordinates while order is out for delivery."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#059669"
+        }
+      ]
+    ]
+  }
+}
