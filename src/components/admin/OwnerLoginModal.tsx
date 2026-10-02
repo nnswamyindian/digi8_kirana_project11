@@ -7,19 +7,28 @@ interface OwnerLoginModalProps {
   isOpen: boolean;
   onClose: () => void;
   onLoginSuccess: (user: User) => void;
+  initialMode?: 'STAFF' | 'DELIVERY' | 'PLATFORM';
 }
 
 export const OwnerLoginModal: React.FC<OwnerLoginModalProps> = ({
   isOpen,
   onClose,
   onLoginSuccess,
+  initialMode = 'STAFF'
 }) => {
   if (!isOpen) return null;
 
-  const [mobile, setMobile] = useState('9876543210');
-  const [pin, setPin] = useState('1234');
+  const defaultMobile = initialMode === 'DELIVERY' ? '9876543213' : (initialMode === 'PLATFORM' ? '9999999999' : '9876543210');
+  const defaultPin = initialMode === 'PLATFORM' ? '9999' : '1234';
+
+  const [mobile, setMobile] = useState(defaultMobile);
+  const [pin, setPin] = useState(defaultPin);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const modalTitle = initialMode === 'DELIVERY'
+    ? 'Delivery Partner Login'
+    : (initialMode === 'PLATFORM' ? 'Digi8 Platform Admin Login' : 'Store Staff & Owner Login');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,7 +66,7 @@ export const OwnerLoginModal: React.FC<OwnerLoginModalProps> = ({
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Lock size={18} color="var(--primary-700)" />
-            <h3 style={{ margin: 0, fontSize: '1.15rem' }}>Staff & Delivery Partner Login</h3>
+            <h3 style={{ margin: 0, fontSize: '1.15rem' }}>{modalTitle}</h3>
           </div>
           <button className="btn-icon btn-secondary" onClick={onClose}>
             <X size={16} />

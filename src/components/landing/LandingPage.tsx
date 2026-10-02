@@ -153,9 +153,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
             <div>
               <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'white', letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                Digi8 Kirana <span style={{ fontSize: '0.65rem', background: '#16a34a', color: 'white', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>SAAS</span>
+                Digi8 Apna Kirana <span style={{ fontSize: '0.65rem', background: '#16a34a', color: 'white', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>SAAS</span>
               </div>
-              <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Enterprise Retail Cloud Platform</div>
+              <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Digi8 Solutions • Enterprise Retail Cloud Platform</div>
             </div>
           </div>
 
@@ -550,10 +550,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'linear-gradient(135deg, #16a34a, #0f766e)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Store size={18} color="white" />
               </div>
-              <span style={{ fontSize: '1.1rem', fontWeight: 800, color: 'white' }}>Digi8 Kirana SaaS</span>
+              <span style={{ fontSize: '1.1rem', fontWeight: 800, color: 'white' }}>Digi8 Apna Kirana</span>
             </div>
             <p style={{ fontSize: '0.8rem', color: '#94a3b8', lineHeight: 1.5 }}>
-              India's leading retail cloud operating system for Kirana shops, supermarkets, and grocery chains.
+              India's leading retail cloud operating system for Kirana shops, supermarkets, and grocery chains. Built by Digi8 Solutions (Digi8ApnaKirana.com).
             </p>
           </div>
 

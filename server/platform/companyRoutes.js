@@ -40,11 +40,19 @@ router.post('/applications', async (req, res) => {
       pin,
       business_name,
       business_type,
+      store_category,
       address,
       city,
       state,
       pincode,
+      country = 'India',
       gst_number,
+      pan_number,
+      whatsapp_number,
+      currency = '₹',
+      timezone = 'Asia/Kolkata',
+      delivery_available = true,
+      pickup_available = true,
       requested_plan,
       terms_accepted
     } = req.body;
@@ -97,8 +105,10 @@ router.post('/applications', async (req, res) => {
       INSERT INTO store_applications (
         id, tenant_id, application_number, store_name, owner_name, email, phone,
         business_name, business_type, address, city, state, pincode, gst_number,
+        pan_number, whatsapp_number, store_category, country, currency, timezone,
+        delivery_available, pickup_available,
         requested_plan, status, review_notes, terms_accepted, ip_address, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?)
     `, [
       appId, tenantId, appNum, store_name.trim(), owner_name.trim(),
       email ? email.trim() : null, cleanPhone,
@@ -109,6 +119,14 @@ router.post('/applications', async (req, res) => {
       state ? state.trim() : 'State',
       pincode ? pincode.trim() : '500001',
       gst_number ? gst_number.trim() : null,
+      pan_number ? pan_number.trim() : null,
+      whatsapp_number ? whatsapp_number.trim() : cleanPhone,
+      store_category || 'Kirana & Supermarket',
+      country || 'India',
+      currency || '₹',
+      timezone || 'Asia/Kolkata',
+      delivery_available ? 1 : 0,
+      pickup_available ? 1 : 0,
       plan ? plan.slug : 'pro',
       'Initial application submitted via Public SaaS portal.',
       terms_accepted ? 1 : 0,

@@ -1,0 +1,129 @@
+name: Kirana SaaS Platform CD Pipeline (Hostinger VPS)
+
+on:
+  workflow_run:
+    workflows: ["Kirana SaaS Platform CI Pipeline"]
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: 'Deployment Target Environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+concurrency:
+  group: deployment-production
+  cancel-in-progress: false
+
+jobs:
+  deploy-to-vps:
+    name: Zero-Downtime VPS Deployment
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
+
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Validate Deployment Secrets
+        run: |
+          if [ -z "${{ secrets.HOSTINGER_SSH_HOST }}" ] || [ -z "${{ secrets.HOSTINGER_SSH_USER }}" ] || [ -z "${{ secrets.HOSTINGER_SSH_KEY }}" ]; then
+            echo "::error::Missing required deployment secrets (HOSTINGER_SSH_HOST, HOSTINGER_SSH_USER, or HOSTINGER_SSH_KEY)."
+            echo "Please configure these secrets under GitHub Repository Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+      - name: Execute Zero-Downtime Deployment via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          port: ${{ secrets.HOSTINGER_SSH_PORT || 22 }}
+          script_stop: true
+          envs: GITHUB_SHA
+          script: |
+            set -euo pipefail
+            APP_DIR="${{ secrets.APP_DIR || '/var/www/grocery-platform' }}"
+            echo "🚀 [Hostinger VPS] Starting deployment in $APP_DIR for commit ${GITHUB_SHA:-latest}..."
+
+            if [ ! -d "$APP_DIR" ]; then
+              echo "❌ Application directory $APP_DIR does not exist. Please run initial setup."
+              exit 1
+            fi
+
+            cd "$APP_DIR"
+
+            # Record previous commit SHA for rollback capabilities
+            PREV_COMMIT=$(git rev-parse HEAD || echo "NONE")
+            echo "📌 Current commit on server: $PREV_COMMIT"
+
+            # 1. Fetch and pull latest code
+            echo "📥 Pulling latest release from Git..."
+            git fetch origin main
+            git reset --hard origin/main
+
+            # 2. Install production dependencies
+            echo "📦 Installing dependencies..."
+            npm ci --prefer-offline
+
+            # 3. Compile frontend production assets
+            echo "🏗️ Building frontend bundle..."
+            npm run build
+
+            # 4. Database Schema Migrations
+            echo "🗄️ Checking database migrations..."
+            if [ -f "deployment/deploy.sh" ]; then
+              chmod +x deployment/deploy.sh
+              bash deployment/deploy.sh
+            else
+              # Fallback PM2 reload
+              pm2 reload deployment/pm2/ecosystem.config.cjs --env production --update-env || pm2 start deployment/pm2/ecosystem.config.cjs --env production
+              sudo nginx -t && sudo systemctl reload nginx
+            fi
+
+            echo "✅ Deployment script executed successfully!"
+
+      - name: Post-Deployment Smoke Health Verification
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          port: ${{ secrets.HOSTINGER_SSH_PORT || 22 }}
+          script: |
+            echo "🩺 Verifying backend health..."
+            HEALTH_URL="http://127.0.0.1:5000/api/platform/health"
+            PASSED=false
+            for i in $(seq 1 12); do
+              if curl -sSf "$HEALTH_URL" | grep -q "HEALTHY"; then
+                echo "✅ Backend health check passed on attempt $i!"
+                PASSED=true
+                break
+              fi
+              echo "   Waiting for backend to be ready... (attempt $i/12)"
+              sleep 2
+            done
+
+            if [ "$PASSED" != true ]; then
+              echo "❌ Health check failed after 24 seconds! Inspecting PM2 logs..."
+              pm2 logs kirana-saas-backend --lines 20 --nostream
+              exit 1
+            fi
+
+      - name: Deployment Summary
+        if: always()
+        run: |
+          echo "### 🚀 Deployment Status: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered By:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** \`main\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target Host:** \`${{ secrets.HOSTINGER_SSH_HOST }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target Environment:** \`${{ github.event.inputs.target_env || 'production' }}\`" >> $GITHUB_STEP_SUMMARY

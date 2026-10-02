@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { StoreProfile, PaymentSettings } from '../../types';
+import { StoreProfile, PaymentSettings, InvoiceSettings } from '../../types';
 import { api } from '../../services/api';
 import { ReceiptData } from '../../services/hardware';
-import { Settings, Printer, Scale, Barcode, ShieldCheck, Check, Save, CreditCard, QrCode, Banknote, Lock, Globe } from 'lucide-react';
+import { Settings, Printer, Scale, Barcode, ShieldCheck, Check, Save, CreditCard, QrCode, Banknote, Lock, Globe, MessageSquare, Phone, Bell, Eye, EyeOff, FileText, Percent } from 'lucide-react';
 
 interface StoreSettingsProps {
   store: StoreProfile;
@@ -34,6 +34,34 @@ export const StoreSettings: React.FC<StoreSettingsProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [testBarcodeText, setTestBarcodeText] = useState('');
+  const [showWaToken, setShowWaToken] = useState(false);
+
+  // Invoice & WhatsApp Settings State (Phase 6)
+  const [invoiceSettings, setInvoiceSettings] = useState<Partial<InvoiceSettings>>({
+    invoice_prefix: 'INV',
+    invoice_show_logo: true,
+    invoice_show_gst: true,
+    invoice_show_address: true,
+    invoice_show_phone: true,
+    invoice_show_customer_name: true,
+    invoice_show_customer_mobile: true,
+    invoice_show_qr: true,
+    invoice_show_tax: true,
+    invoice_show_discount: true,
+    invoice_footer_message: 'Thank you for shopping with us! Visit again.',
+    invoice_thank_you_message: 'Thank you for your visit!',
+    whatsapp_enabled: false,
+    whatsapp_business_number: '',
+    whatsapp_phone_number_id: '',
+    whatsapp_account_id: '',
+    whatsapp_template_name: 'kirana_invoice_notification',
+    whatsapp_auto_send: false,
+    allow_selling_below_cost: false,
+    allow_negative_inventory: false,
+    minimum_margin_alert_percent: 10,
+  });
+  const [isInvoiceSaving, setIsInvoiceSaving] = useState(false);
+  const [invoiceSaveOk, setInvoiceSaveOk] = useState(false);
 
   useEffect(() => {
     api.getPaymentSettings().then(res => {
@@ -44,6 +72,10 @@ export const StoreSettings: React.FC<StoreSettingsProps> = ({
           razorpay_key_secret: '', // Keep empty unless owner types a new secret
         }));
       }
+    }).catch(console.error);
+
+    api.getInvoiceSettings().then(res => {
+      if (res) setInvoiceSettings(res);
     }).catch(console.error);
   }, []);
 
@@ -694,8 +726,230 @@ export const StoreSettings: React.FC<StoreSettingsProps> = ({
           </ol>
         </div>
       </div>
+      {/* ─────────────────────────────────────────────────────────────────
+          5. INVOICE CUSTOMIZATION & WHATSAPP SETTINGS (Phase 6)
+      ───────────────────────────────────────────────────────────────── */}
+      <div style={{ background: 'white', borderRadius: 'var(--radius-xl)', padding: '24px', border: '1px solid var(--border-light)', marginBottom: '24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+          <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <FileText size={20} color="var(--primary-700)" />
+            <span>🧾 Invoice Customization & WhatsApp Billing</span>
+          </h3>
+          {invoiceSaveOk && (
+            <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#15803d', background: '#dcfce7', padding: '4px 12px', borderRadius: 20 }}>✓ Saved</span>
+          )}
+        </div>
 
-      {/* Save Button */}
+        {/* ── Invoice Display Toggles ── */}
+        <div style={{ background: '#f8fafc', borderRadius: 12, padding: '18px', marginBottom: 20, border: '1px solid #e2e8f0' }}>
+          <div style={{ fontWeight: 800, fontSize: '0.9rem', marginBottom: 14 }}>🖨️ Invoice Field Visibility</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '10px' }}>
+            {([
+              { key: 'invoice_show_logo', label: 'Show Store Logo' },
+              { key: 'invoice_show_gst', label: 'Show GSTIN Number' },
+              { key: 'invoice_show_address', label: 'Show Store Address' },
+              { key: 'invoice_show_phone', label: 'Show Store Phone' },
+              { key: 'invoice_show_customer_name', label: 'Show Customer Name' },
+              { key: 'invoice_show_customer_mobile', label: 'Show Customer Mobile' },
+              { key: 'invoice_show_qr', label: 'Show UPI QR Code' },
+              { key: 'invoice_show_tax', label: 'Show GST Amount' },
+              { key: 'invoice_show_discount', label: 'Show Discount Line' },
+            ] as { key: keyof InvoiceSettings; label: string }[]).map(({ key, label }) => (
+              <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '8px 12px', background: 'white', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.84rem', fontWeight: 600 }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(invoiceSettings[key])}
+                  onChange={e => setInvoiceSettings(p => ({ ...p, [key]: e.target.checked }))}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Invoice Text Fields ── */}
+        <div className="form-grid" style={{ marginBottom: 20 }}>
+          <div className="form-group">
+            <label>Invoice Number Prefix</label>
+            <input
+              type="text"
+              placeholder="INV"
+              value={invoiceSettings.invoice_prefix || 'INV'}
+              onChange={e => setInvoiceSettings(p => ({ ...p, invoice_prefix: e.target.value }))}
+            />
+            <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: 4 }}>Bills will be numbered INV-001, INV-002…</div>
+          </div>
+          <div className="form-group">
+            <label>Minimum Margin Alert (%)</label>
+            <input
+              type="number" min={0} max={100} step={1}
+              value={invoiceSettings.minimum_margin_alert_percent || 10}
+              onChange={e => setInvoiceSettings(p => ({ ...p, minimum_margin_alert_percent: parseFloat(e.target.value) || 0 }))}
+            />
+            <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: 4 }}>Products below this margin will be flagged 🟡</div>
+          </div>
+          <div className="form-group" style={{ gridColumn: 'span 2' }}>
+            <label>Invoice Footer Message</label>
+            <input
+              type="text"
+              value={invoiceSettings.invoice_footer_message || ''}
+              onChange={e => setInvoiceSettings(p => ({ ...p, invoice_footer_message: e.target.value }))}
+            />
+          </div>
+          <div className="form-group" style={{ gridColumn: 'span 2' }}>
+            <label>Thank-you Message (Thermal Receipt Bottom)</label>
+            <input
+              type="text"
+              value={invoiceSettings.invoice_thank_you_message || ''}
+              onChange={e => setInvoiceSettings(p => ({ ...p, invoice_thank_you_message: e.target.value }))}
+            />
+          </div>
+        </div>
+
+        {/* ── POS Margin Rules ── */}
+        <div style={{ background: '#fefce8', border: '1px solid #fef08a', borderRadius: 10, padding: '14px 18px', marginBottom: 20 }}>
+          <div style={{ fontWeight: 800, fontSize: '0.9rem', marginBottom: 10 }}>⚠️ POS Pricing Guard Rails</div>
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
+              <input
+                type="checkbox"
+                checked={Boolean(invoiceSettings.allow_selling_below_cost)}
+                onChange={e => setInvoiceSettings(p => ({ ...p, allow_selling_below_cost: e.target.checked }))}
+              />
+              Allow POS cashier to sell below purchase cost
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
+              <input
+                type="checkbox"
+                checked={Boolean(invoiceSettings.allow_negative_inventory)}
+                onChange={e => setInvoiceSettings(p => ({ ...p, allow_negative_inventory: e.target.checked }))}
+              />
+              Allow stock to go negative at POS
+            </label>
+          </div>
+        </div>
+
+        {/* ── WhatsApp Business Settings ── */}
+        <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <MessageSquare size={20} color="#25d366" />
+              <div>
+                <strong style={{ fontSize: '0.95rem' }}>WhatsApp Business Invoice Dispatch</strong>
+                <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: 2 }}>Send digital invoices automatically via WhatsApp Business API after every POS sale</div>
+              </div>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem' }}>
+              <input
+                type="checkbox"
+                checked={Boolean(invoiceSettings.whatsapp_enabled)}
+                onChange={e => setInvoiceSettings(p => ({ ...p, whatsapp_enabled: e.target.checked }))}
+              />
+              <span style={{ color: invoiceSettings.whatsapp_enabled ? '#15803d' : '#64748b' }}>
+                {invoiceSettings.whatsapp_enabled ? '✅ Enabled' : 'Disabled'}
+              </span>
+            </label>
+          </div>
+
+          <div className="form-grid">
+            <div className="form-group">
+              <label>WhatsApp Business Phone Number</label>
+              <input
+                type="text"
+                placeholder="+919876543210"
+                value={invoiceSettings.whatsapp_business_number || ''}
+                onChange={e => setInvoiceSettings(p => ({ ...p, whatsapp_business_number: e.target.value }))}
+              />
+              <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: 3 }}>Your WhatsApp Business registered number</div>
+            </div>
+            <div className="form-group">
+              <label>Phone Number ID (Meta Developer Console)</label>
+              <input
+                type="text"
+                placeholder="e.g. 123456789012345"
+                value={invoiceSettings.whatsapp_phone_number_id || ''}
+                onChange={e => setInvoiceSettings(p => ({ ...p, whatsapp_phone_number_id: e.target.value }))}
+              />
+            </div>
+            <div className="form-group">
+              <label>WhatsApp Account ID (WABA ID)</label>
+              <input
+                type="text"
+                placeholder="e.g. 987654321098765"
+                value={invoiceSettings.whatsapp_account_id || ''}
+                onChange={e => setInvoiceSettings(p => ({ ...p, whatsapp_account_id: e.target.value }))}
+              />
+            </div>
+            <div className="form-group">
+              <label>Message Template Name</label>
+              <input
+                type="text"
+                placeholder="kirana_invoice_notification"
+                value={invoiceSettings.whatsapp_template_name || ''}
+                onChange={e => setInvoiceSettings(p => ({ ...p, whatsapp_template_name: e.target.value }))}
+              />
+            </div>
+            <div className="form-group" style={{ gridColumn: 'span 2' }}>
+              <label>Permanent Access Token (Cloud API Bearer Token)</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type={showWaToken ? 'text' : 'password'}
+                  placeholder={invoiceSettings.whatsapp_access_token_configured ? '•••••••• (currently set — enter new to replace)' : 'Paste your permanent access token from Meta for Developers'}
+                  defaultValue=""
+                  onChange={e => setInvoiceSettings(p => ({ ...p, whatsapp_access_token: e.target.value } as any))}
+                  style={{ flex: 1, fontFamily: 'monospace', fontSize: '0.82rem' }}
+                />
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowWaToken(v => !v)}>
+                  {showWaToken ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+              {invoiceSettings.whatsapp_access_token_configured && (
+                <div style={{ fontSize: '0.73rem', color: '#15803d', marginTop: 3, fontWeight: 600 }}>✅ Access token is currently configured</div>
+              )}
+            </div>
+          </div>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', marginTop: 10, padding: '10px 14px', background: invoiceSettings.whatsapp_auto_send ? '#f0fdf4' : '#f8fafc', borderRadius: 10, border: `1px solid ${invoiceSettings.whatsapp_auto_send ? '#bbf7d0' : '#e2e8f0'}` }}>
+            <input
+              type="checkbox"
+              checked={Boolean(invoiceSettings.whatsapp_auto_send)}
+              onChange={e => setInvoiceSettings(p => ({ ...p, whatsapp_auto_send: e.target.checked }))}
+            />
+            <Bell size={16} color={invoiceSettings.whatsapp_auto_send ? '#15803d' : '#94a3b8'} />
+            <span style={{ color: invoiceSettings.whatsapp_auto_send ? '#15803d' : '#475569' }}>
+              Auto-send WhatsApp invoice to customer after every POS sale (when customer mobile number is captured)
+            </span>
+          </label>
+        </div>
+
+        {/* Save Invoice Settings Button */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={isInvoiceSaving}
+            style={{ gap: 8 }}
+            onClick={async () => {
+              setIsInvoiceSaving(true);
+              setInvoiceSaveOk(false);
+              try {
+                await api.updateInvoiceSettings(invoiceSettings);
+                setInvoiceSaveOk(true);
+                setTimeout(() => setInvoiceSaveOk(false), 3000);
+              } catch (err: any) {
+                alert('Failed to save invoice settings: ' + err.message);
+              } finally {
+                setIsInvoiceSaving(false);
+              }
+            }}
+          >
+            <Save size={16} />
+            <span>{isInvoiceSaving ? 'Saving…' : 'Save Invoice & WhatsApp Settings'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Save Button — Store Profile + Payment + Hardware */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
         <button
           type="submit"

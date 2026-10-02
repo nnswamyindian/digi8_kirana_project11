@@ -19,11 +19,15 @@ import {
   CheckCircle2,
   Wifi,
   WifiOff,
-  AlertCircle,
   Tag,
   ShieldAlert,
-  Edit3
+  Edit3,
+  Camera,
+  MessageSquare,
+  Send,
+  AlertCircle
 } from 'lucide-react';
+import { BarcodeScannerModal } from './BarcodeScannerModal';
 
 interface POSTerminalProps {
   products: Product[];
@@ -61,6 +65,11 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [customerOrderCount, setCustomerOrderCount] = useState<number | null>(null);
+  const [isLookingUpCustomer, setIsLookingUpCustomer] = useState(false);
+  const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
 
   // Discount
   const [discountType, setDiscountType] = useState<'FLAT' | 'PERCENT'>('FLAT');
@@ -119,10 +128,21 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
   const [barcodeNotFound, setBarcodeNotFound] = useState<{ barcode: string } | null>(null);
   const [lastScannedFeedback, setLastScannedFeedback] = useState<string | null>(null);
 
-  const handleBarcodeScanned = (barcode: string) => {
+  const handleBarcodeScanned = async (barcode: string) => {
     const cleanCode = barcode.trim();
     if (!cleanCode) return;
-    const found = products.find(p => p.barcode === cleanCode);
+    let found = products.find(p => p.barcode === cleanCode || (p.sku && p.sku === cleanCode));
+    if (!found) {
+      try {
+        const res = await api.getProductByBarcode(cleanCode);
+        if (res && res.id) {
+          found = res;
+        }
+      } catch (err) {
+        // Not in backend either
+      }
+    }
+
     if (found) {
       setBarcodeNotFound(null);
       setLastScannedFeedback(`✓ Added ${found.name}`);
@@ -134,6 +154,35 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
       }
     } else {
       setBarcodeNotFound({ barcode: cleanCode });
+    }
+  };
+
+  const handleCustomerPhoneChange = async (val: string) => {
+    const clean = val.replace(/\D/g, '').slice(0, 10);
+    setCustomerPhone(clean);
+
+    if (clean.length === 10) {
+      setIsLookingUpCustomer(true);
+      try {
+        const res = await api.lookupCustomerByMobile(clean);
+        if (res.customer) {
+          setSelectedCustomer(res.customer);
+          setCustomerName(res.customer.name);
+          setCustomerOrderCount(res.previousOrdersCount);
+        } else {
+          setCustomerOrderCount(0);
+          setSelectedCustomer(null);
+        }
+      } catch (err) {
+        console.error('Customer lookup error:', err);
+      } finally {
+        setIsLookingUpCustomer(false);
+      }
+    } else {
+      setCustomerOrderCount(null);
+      if (selectedCustomer && selectedCustomer.phone !== clean) {
+        setSelectedCustomer(null);
+      }
     }
   };
 
@@ -311,6 +360,9 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
   const clearCart = () => {
     setCart([]);
     setSelectedCustomer(null);
+    setCustomerPhone('');
+    setCustomerName('');
+    setCustomerOrderCount(null);
     setDiscountVal(0);
     setCashTendered('');
   };
@@ -339,8 +391,10 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
       return;
     }
 
-    if (paymentMethod === 'CREDIT' && !selectedCustomer) {
-      alert('Please select a customer to record Khata (Store Credit / Udhar)');
+    const finalCust = selectedCustomer || (customerPhone.trim() ? { name: customerName.trim() || 'Valued Customer', phone: customerPhone.trim() } : null);
+
+    if (paymentMethod === 'CREDIT' && !finalCust) {
+      alert('Please enter or select a customer to record Khata (Store Credit / Udhar)');
       return;
     }
 
@@ -363,7 +417,7 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
         cost_price: it.product.purchase_cost,
         gst_percent: it.product.gst_percent,
       })),
-      customer: selectedCustomer,
+      customer: finalCust,
       discount: cartDiscountAmount,
       total_item_discounts: totalItemDiscounts,
       payment_method: paymentMethod,
@@ -412,8 +466,8 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
         order_no: billResult.order_number,
         date_time: new Date().toLocaleString('en-IN'),
         cashier: 'POS Cashier 1',
-        customer_name: selectedCustomer?.name || 'Walk-in Customer',
-        customer_phone: selectedCustomer?.phone || '',
+        customer_name: finalCust?.name || 'Walk-in Customer',
+        customer_phone: finalCust?.phone || '',
         items: cart.map(it => ({
           name: it.product.name,
           qty: it.quantity,
@@ -429,6 +483,17 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
         upi_id: store.upi_id,
         footer_text: 'Thank you for shopping at ' + store.name,
       };
+
+      // Phase 6: WhatsApp dispatch if customer mobile is present
+      const invoiceNum = billResult.invoice_number;
+      const targetPhone = finalCust?.phone;
+      if (invoiceNum && targetPhone) {
+        api.sendInvoiceWhatsApp(invoiceNum, targetPhone).then(res => {
+          console.log('[Auto WhatsApp Invoice Sent]:', res);
+        }).catch(waErr => {
+          console.warn('[Auto WhatsApp Notice - Sale remains PAID]:', waErr);
+        });
+      }
 
       // Open receipt modal for thermal printing
       onOpenReceipt(receipt);
@@ -556,6 +621,26 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
             </button>
           </form>
 
+          {/* PHASE 6: Mobile / Tablet Camera Barcode Scanner Trigger */}
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setIsCameraScannerOpen(true)}
+            title="Scan barcode with mobile camera"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: '#e0f2fe',
+              color: '#0369a1',
+              borderColor: '#bae6fd',
+              fontWeight: 600
+            }}
+          >
+            <Camera size={16} />
+            <span>Camera Scan</span>
+          </button>
+
           {/* Barcode scanner active badge */}
           <div style={{
             display: 'flex',
@@ -651,32 +736,112 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
           </div>
         </div>
 
-        {/* Customer Khata Selector */}
-        <div className="pos-customer-selector">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
-            <User size={16} color="var(--primary-700)" />
-            <select
-              style={{ padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)', fontSize: '0.825rem', width: '100%', background: 'white' }}
-              value={selectedCustomer?.id || ''}
-              onChange={(e) => {
-                const c = customers.find(cust => cust.id === e.target.value);
-                setSelectedCustomer(c || null);
-              }}
-            >
-              <option value="">Walk-in Customer (No Khata)</option>
-              {customers.map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.phone}) - Khata: ₹{c.credit_balance}
-                </option>
-              ))}
-            </select>
+        {/* PHASE 6: CUSTOMER NAME & MOBILE NUMBER CAPTURE (TENANT ISOLATED) */}
+        <div style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '10px 14px' }}>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '6px' }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '0.7rem', fontWeight: 600, color: '#64748b', marginBottom: '2px' }}>
+                CUSTOMER MOBILE
+              </div>
+              <input
+                type="tel"
+                placeholder="10-digit Mobile..."
+                maxLength={10}
+                value={customerPhone}
+                onChange={(e) => handleCustomerPhoneChange(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '6px 8px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '0.825rem',
+                  fontFamily: 'monospace'
+                }}
+              />
+            </div>
+
+            <div style={{ flex: 1.2 }}>
+              <div style={{ fontSize: '0.7rem', fontWeight: 600, color: '#64748b', marginBottom: '2px' }}>
+                CUSTOMER NAME
+              </div>
+              <input
+                type="text"
+                placeholder="Customer Name..."
+                value={customerName}
+                onChange={(e) => {
+                  setCustomerName(e.target.value);
+                  if (selectedCustomer) {
+                    setSelectedCustomer({ ...selectedCustomer, name: e.target.value });
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  padding: '6px 8px',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '0.825rem'
+                }}
+              />
+            </div>
           </div>
 
-          {selectedCustomer && (
-            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: selectedCustomer.credit_balance > 0 ? '#ea580c' : 'var(--primary-700)', whiteSpace: 'nowrap' }}>
-              Udhar: ₹{selectedCustomer.credit_balance}
-            </div>
-          )}
+          {/* Customer Lookup & Khata Status Badges */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem' }}>
+            {isLookingUpCustomer ? (
+              <span style={{ color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <RefreshCw size={12} className="animate-spin" /> Searching customer...
+              </span>
+            ) : selectedCustomer ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ background: '#dcfce7', color: '#15803d', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                  ✓ Existing Customer ({customerOrderCount ?? 0} orders)
+                </span>
+                {selectedCustomer.credit_balance > 0 && (
+                  <span style={{ color: '#ea580c', fontWeight: 700 }}>
+                    Udhar: ₹{selectedCustomer.credit_balance}
+                  </span>
+                )}
+              </div>
+            ) : customerPhone.length === 10 ? (
+              <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                + New Customer (Will auto-save)
+              </span>
+            ) : (
+              <span style={{ color: '#94a3b8' }}>
+                Walk-in Customer
+              </span>
+            )}
+
+            {/* Quick dropdown for existing registered customers */}
+            {customers.length > 0 && (
+              <select
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  fontSize: '0.72rem',
+                  color: '#475569',
+                  cursor: 'pointer',
+                  maxWidth: '120px'
+                }}
+                value={selectedCustomer?.id || ''}
+                onChange={(e) => {
+                  const c = customers.find(cust => cust.id === e.target.value);
+                  if (c) {
+                    setSelectedCustomer(c);
+                    setCustomerPhone(c.phone);
+                    setCustomerName(c.name);
+                  } else {
+                    setSelectedCustomer(null);
+                  }
+                }}
+              >
+                <option value="">Select list...</option>
+                {customers.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
         </div>
 
         {/* Cart Line Items */}
@@ -1203,6 +1368,14 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
           </div>
         );
       })()}
+
+      {/* PHASE 6: MOBILE / TABLET CAMERA BARCODE SCANNER MODAL */}
+      <BarcodeScannerModal
+        isOpen={isCameraScannerOpen}
+        onClose={() => setIsCameraScannerOpen(false)}
+        onScanSuccess={(code) => handleBarcodeScanned(code)}
+        title="Mobile Barcode Scanner"
+      />
     </div>
   );
 };

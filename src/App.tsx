@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { StoreProfile, Category, Product, Customer, CartItem, Order, User } from './types';
+import { StoreProfile, Category, Product, Customer, CartItem, Order, User, CustomerUser } from './types';
 import { api } from './services/api';
 import { playOrderChime, ReceiptData } from './services/hardware';
 
@@ -13,6 +13,9 @@ import { CartDrawer } from './components/storefront/CartDrawer';
 import { CheckoutModal } from './components/storefront/CheckoutModal';
 import { OrderTrackingModal } from './components/storefront/OrderTrackingModal';
 import { StoreFooter } from './components/storefront/StoreFooter';
+import { CustomerAuthModal } from './components/storefront/CustomerAuthModal';
+import { CustomerOrdersModal } from './components/storefront/CustomerOrdersModal';
+import { StoreStateNotice, StoreNoticeType } from './components/storefront/StoreStateNotice';
 
 // Admin Components
 import { AdminLayout } from './components/admin/AdminLayout';
@@ -48,6 +51,7 @@ export const App: React.FC = () => {
   // App Mode: Public SaaS Landing vs Storefront vs Admin Portal vs Delivery Boy Portal
   const [currentView, setCurrentView] = useState<'storefront' | 'admin' | 'delivery' | 'landing'>('storefront');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [customerUser, setCustomerUser] = useState<CustomerUser | null>(null);
   const [adminTab, setAdminTab] = useState<string>('dashboard');
 
   // Central Core State
@@ -67,15 +71,19 @@ export const App: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [storefrontFilter, setStorefrontFilter] = useState<'all' | 'loose' | 'offers' | 'bestsellers'>('all');
 
-  // Modals
+  // Modals & Navigation
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
+  const [staffLoginMode, setStaffLoginMode] = useState<'STAFF' | 'DELIVERY' | 'PLATFORM'>('STAFF');
+  const [isCustomerAuthOpen, setIsCustomerAuthOpen] = useState(false);
+  const [isCustomerOrdersOpen, setIsCustomerOrdersOpen] = useState(false);
   const [isTrackOrderOpen, setIsTrackOrderOpen] = useState(false);
   const [selectedDetailProduct, setSelectedDetailProduct] = useState<Product | null>(null);
   const [activeReceiptData, setActiveReceiptData] = useState<ReceiptData | null>(null);
   const [barcodeModalProduct, setBarcodeModalProduct] = useState<Product | null>(null);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  const [storeNoticeState, setStoreNoticeState] = useState<StoreNoticeType | null>(null);
 
   // Load Initial Store Data
   const loadInitialData = async () => {
@@ -90,8 +98,18 @@ export const App: React.FC = () => {
       setCategories(c);
       setProducts(p);
       setCustomers(cust);
+
+      // Verify store availability
+      if (s.status === 'SUSPENDED') {
+        setStoreNoticeState('SUSPENDED');
+      } else if (s.is_storefront_enabled === 0 || (s as any).is_storefront_enabled === false) {
+        setStoreNoticeState('STOREFRONT_DISABLED');
+      } else {
+        setStoreNoticeState(null);
+      }
     } catch (err) {
       console.error('Failed to load store data:', err);
+      setStoreNoticeState('NOT_FOUND');
     }
   };
 
@@ -104,24 +122,60 @@ export const App: React.FC = () => {
   // Dynamic White-label Branding Injection
   useEffect(() => {
     if (store) {
-      const pColor = store.primary_color || '#059669';
+      const pColor = store.primary_color || '#16a34a';
       document.documentElement.style.setProperty('--primary-600', pColor);
       document.documentElement.style.setProperty('--primary-700', pColor);
       document.documentElement.style.setProperty('--primary-500', pColor);
-      document.title = `${store.name} — Multi-Tenant Kirana SaaS`;
+      document.title = `${store.name} — Digi8 Apna Kirana`;
     }
   }, [store]);
 
   useEffect(() => {
     loadInitialData();
 
-    // Check URL parameters for explicit view routing (e.g. ?view=landing)
+    // Check URL parameters for explicit view routing
     const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('view') === 'landing') {
+    const viewParam = urlParams.get('view');
+    const storeParam = urlParams.get('store') || urlParams.get('tenant');
+
+    if (viewParam === 'landing') {
       setCurrentView('landing');
+    } else if (viewParam === 'admin' || viewParam === 'manage') {
+      setCurrentView('admin');
+    } else if (viewParam === 'platform' || viewParam === 'superadmin') {
+      setCurrentView('admin');
+      setAdminTab('platform');
+    } else if (viewParam === 'delivery') {
+      setCurrentView('delivery');
     }
 
-    // Hydrate authenticated session if JWT token exists
+    // Path-based routing: /platform-admin, /store-login, /manage, /delivery, or /:storeSlug
+    const rawPath = window.location.pathname.replace(/^\/|\/$/g, '');
+    if (rawPath === 'platform-admin') {
+      setCurrentView('admin');
+      setAdminTab('platform');
+    } else if (rawPath === 'store-login' || rawPath === 'manage') {
+      setCurrentView('admin');
+    } else if (rawPath === 'delivery' || rawPath === 'delivery-login') {
+      setCurrentView('delivery');
+    } else if (rawPath && !['api', 'assets', 'store'].includes(rawPath)) {
+      api.resolveTenant(rawPath).then(res => {
+        if (res.success && res.tenant) {
+          handleSwitchTenant(res.tenant.id);
+        }
+      }).catch(() => {});
+    }
+
+    if (storeParam) {
+      handleSwitchTenant(storeParam);
+    }
+
+    // Hydrate customer session
+    api.getCustomerProfile().then(cust => {
+      if (cust) setCustomerUser(cust);
+    }).catch(() => {});
+
+    // Hydrate staff authenticated session if JWT token exists
     api.getCurrentUser().then(async (user) => {
       if (user) {
         setCurrentUser(user);
@@ -334,18 +388,38 @@ export const App: React.FC = () => {
       {currentView === 'landing' ? (
         <LandingPage
           onSwitchToStorefront={() => setCurrentView('storefront')}
-          onOpenStoreLogin={() => setIsLoginOpen(true)}
-          onOpenPlatformAdminLogin={() => setIsLoginOpen(true)}
+          onOpenStoreLogin={() => {
+            setStaffLoginMode('STAFF');
+            setIsLoginOpen(true);
+          }}
+          onOpenPlatformAdminLogin={() => {
+            setStaffLoginMode('PLATFORM');
+            setIsLoginOpen(true);
+          }}
         />
       ) : currentView === 'storefront' ? (
         <>
-          {/* Main Navbar */}
+          {/* Main Navbar with Separate Logins */}
           <StoreNavbar
             store={store}
             cartCount={cartCount}
             cartTotal={cartTotal}
+            customer={customerUser}
             onOpenCart={() => setIsCartOpen(true)}
-            onOpenLogin={() => setIsLoginOpen(true)}
+            onOpenCustomerAuth={() => setIsCustomerAuthOpen(true)}
+            onOpenCustomerOrders={() => setIsCustomerOrdersOpen(true)}
+            onCustomerLogout={() => {
+              api.logoutCustomer();
+              setCustomerUser(null);
+            }}
+            onOpenDeliveryLogin={() => {
+              setStaffLoginMode('DELIVERY');
+              setIsLoginOpen(true);
+            }}
+            onOpenStaffLogin={() => {
+              setStaffLoginMode('STAFF');
+              setIsLoginOpen(true);
+            }}
             onSelectProduct={(p) => setSelectedDetailProduct(p)}
             onTrackOrder={() => setIsTrackOrderOpen(true)}
             products={products}
@@ -353,29 +427,43 @@ export const App: React.FC = () => {
             onSelectCategory={(catId) => setSelectedCategory(catId)}
             onSwitchTenant={handleSwitchTenant}
             onRegisterStore={() => setCurrentView('landing')}
+            onGoToPlatformLanding={() => setCurrentView('landing')}
           />
 
-          {/* Store Closed Warning Notice */}
-          {store.store_status === 'CLOSED' && (
-            <div style={{
-              background: '#fee2e2',
-              color: '#991b1b',
-              padding: '12px 24px',
-              textAlign: 'center',
-              fontWeight: 700,
-              fontSize: '0.9rem',
-              borderBottom: '1px solid #fecaca',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px'
-            }}>
-              <AlertTriangle size={18} />
-              <span>
-                Store is currently closed for counter billing. You can still browse products; delivery starts tomorrow at {store.opening_time}.
-              </span>
-            </div>
-          )}
+          {/* Storefront Availability / Suspension / Closed Notice */}
+          {storeNoticeState ? (
+            <StoreStateNotice
+              type={storeNoticeState}
+              storeName={store.name}
+              onGoToPlatform={() => setCurrentView('landing')}
+              onOpenStoreLogin={() => {
+                setStaffLoginMode('STAFF');
+                setIsLoginOpen(true);
+              }}
+            />
+          ) : (
+            <>
+              {/* Store Closed Warning Notice */}
+              {store.store_status === 'CLOSED' && (
+                <div style={{
+                  background: '#fee2e2',
+                  color: '#991b1b',
+                  padding: '12px 24px',
+                  textAlign: 'center',
+                  fontWeight: 700,
+                  fontSize: '0.9rem',
+                  borderBottom: '1px solid #fecaca',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px'
+                }}>
+                  <AlertTriangle size={18} />
+                  <span>
+                    Store is currently closed for counter billing. You can still browse products; delivery starts tomorrow at {store.opening_time}.
+                  </span>
+                </div>
+              )}
 
           {/* Hero Banner */}
           <HeroBanner
@@ -483,8 +571,13 @@ export const App: React.FC = () => {
           {/* Footer */}
           <StoreFooter
             store={store}
-            onOpenOwnerLogin={() => setIsLoginOpen(true)}
+            onOpenOwnerLogin={() => {
+              setStaffLoginMode('STAFF');
+              setIsLoginOpen(true);
+            }}
           />
+            </>
+          )}
         </>
       ) : currentView === 'delivery' && currentUser ? (
         /* ====================================================
@@ -678,6 +771,7 @@ export const App: React.FC = () => {
         }}
         items={cart}
         store={store}
+        customer={customerUser}
         onOrderSuccess={(orderInfo) => {
           // Clear cart on successful order
           setCart([]);
@@ -685,10 +779,11 @@ export const App: React.FC = () => {
         }}
       />
 
-      {/* 3. Owner / Staff Login Modal */}
+      {/* 3. Owner / Staff / Rider / Platform Login Modal */}
       <OwnerLoginModal
         isOpen={isLoginOpen}
         onClose={() => setIsLoginOpen(false)}
+        initialMode={staffLoginMode}
         onLoginSuccess={async (user) => {
           setCurrentUser(user);
           if (user.role === 'DELIVERY_BOY' || user.role === 'DELIVERY_AGENT') {
@@ -704,6 +799,28 @@ export const App: React.FC = () => {
           }
         }}
       />
+
+      {/* 3B. Dedicated Customer Account Modal (Shopper Sign In / Register) */}
+      <CustomerAuthModal
+        isOpen={isCustomerAuthOpen}
+        onClose={() => setIsCustomerAuthOpen(false)}
+        storeName={store?.name}
+        onAuthSuccess={(cust) => {
+          setCustomerUser(cust);
+        }}
+      />
+
+      {/* 3C. Dedicated Customer Orders & Tracking History */}
+      {customerUser && (
+        <CustomerOrdersModal
+          isOpen={isCustomerOrdersOpen}
+          onClose={() => setIsCustomerOrdersOpen(false)}
+          customer={customerUser}
+          onTrackOrder={(orderId) => {
+            setIsTrackOrderOpen(true);
+          }}
+        />
+      )}
 
       {/* 4. Live Order Tracking Modal */}
       <OrderTrackingModal

@@ -29,6 +29,7 @@ export interface StoreProfile {
   secondary_color?: string;
   button_color?: string;
   status?: 'ACTIVE' | 'SUSPENDED' | 'PENDING' | 'INACTIVE';
+  is_storefront_enabled?: number | boolean;
   plan?: 'FREE' | 'STARTER' | 'GROWTH' | 'PRO' | 'ENTERPRISE';
   printer_width: '58mm' | '80mm';
   printer_connection: 'BROWSER_DIRECT' | 'PRINT_BRIDGE';
@@ -52,19 +53,23 @@ export interface Category {
 export interface Product {
   id: string;
   store_id?: string;
+  tenant_id?: string;
   category_id: string;
   category_name?: string;
   category_slug?: string;
   name: string;
   brand: string;
   barcode: string;
-  unit: 'KG' | 'GRAM' | 'LITRE' | 'ML' | 'PACKET' | 'BOX' | 'PIECE' | 'DOZEN';
+  sku?: string;
+  unit: 'KG' | 'GRAM' | 'LITRE' | 'ML' | 'PACKET' | 'BOX' | 'PIECE' | 'DOZEN' | 'BOTTLE' | 'BAG' | 'BUNDLE' | string;
   is_loose: number | boolean;
   purchase_cost: number;
   selling_price: number;
   mrp: number;
   wholesale_price: number;
   min_selling_price: number;
+  default_discount_type?: 'NONE' | 'FIXED' | 'PERCENT';
+  default_discount_value?: number;
   pos_price: number;
   website_price: number;
   gst_percent: number;
@@ -73,7 +78,13 @@ export interface Product {
   reserved_stock: number;
   available_stock: number;
   min_stock: number;
+  max_stock?: number;
+  reorder_level?: number;
+  supplier?: string;
+  hsn_sac?: string;
+  barcode_type?: 'MANUFACTURER' | 'INTERNAL_STORE';
   is_in_stock?: boolean;
+  stock_status?: 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK';
   is_active: number | boolean;
   is_visible_online: number | boolean;
   is_pos_available: number | boolean;
@@ -84,6 +95,9 @@ export interface Product {
   description: string;
   savings_amount?: number;
   savings_percent?: number;
+  expected_profit?: number;
+  profit_margin?: number;
+  markup_percent?: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -298,6 +312,39 @@ export interface PaymentSettings {
   updated_at?: string;
 }
 
+export interface InvoiceSettings {
+  id?: string;
+  tenant_id?: string;
+  // Invoice number
+  invoice_prefix: string;
+  // Display toggles
+  invoice_show_logo: boolean;
+  invoice_show_gst: boolean;
+  invoice_show_address: boolean;
+  invoice_show_phone: boolean;
+  invoice_show_customer_name: boolean;
+  invoice_show_customer_mobile: boolean;
+  invoice_show_qr: boolean;
+  invoice_show_tax: boolean;
+  invoice_show_discount: boolean;
+  // Text customization
+  invoice_footer_message: string;
+  invoice_thank_you_message: string;
+  // POS guard rails
+  allow_selling_below_cost: boolean;
+  allow_negative_inventory: boolean;
+  minimum_margin_alert_percent: number;
+  // WhatsApp Business API
+  whatsapp_enabled: boolean;
+  whatsapp_business_number: string;
+  whatsapp_phone_number_id: string;
+  whatsapp_account_id: string;
+  whatsapp_template_name: string;
+  whatsapp_auto_send: boolean;
+  whatsapp_access_token_configured?: boolean; // set by server (never sent back in plain text)
+  updated_at?: string;
+}
+
 export interface DeliveryCashCollection {
   id: string;
   order_id: string;
@@ -482,3 +529,246 @@ export interface DashboardReport {
     total_revenue: number;
   }[];
 }
+
+// ----------------------------------------------------
+// PHASE 6 & 6A: BULK IMPORT, INVENTORY & ANALYTICS TYPES
+// ----------------------------------------------------
+
+export interface BulkImportRow {
+  rowNumber: number;
+  sku: string;
+  barcode: string;
+  name: string;
+  category: string;
+  subcategory?: string;
+  brand?: string;
+  unit: string;
+  sellingPrice: number;
+  purchasePrice: number;
+  wholesalePrice?: number;
+  taxPercent: number;
+  openingStock: number;
+  minStock: number;
+  maxStock?: number;
+  reorderLevel?: number;
+  supplier?: string;
+  hsnSac?: string;
+  description?: string;
+  status: 'ACTIVE' | 'INACTIVE';
+  problems: string[];
+  status_type?: 'VALID' | 'WARNING' | 'ERROR';
+}
+
+export interface BulkImportValidationResult {
+  totalRows: number;
+  validCount: number;
+  warningCount: number;
+  errorCount: number;
+  rows: BulkImportRow[];
+}
+
+export interface BulkImportConfirmResult {
+  success: boolean;
+  createdCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  errorCount: number;
+  errors: string[];
+}
+
+export interface InventoryTransaction {
+  id: string;
+  tenant_id: string;
+  product_id: string;
+  product_name?: string;
+  quantity: number;
+  unit: string;
+  transaction_type: 'OPENING_STOCK' | 'PURCHASE' | 'SALE' | 'SALE_REVERSAL' | 'RETURN' | 'ADJUSTMENT' | 'DAMAGE' | 'EXPIRY' | 'TRANSFER' | 'STOCK_RECEIVE';
+  reference_id?: string;
+  previous_stock: number;
+  new_stock: number;
+  unit_cost?: number;
+  notes?: string;
+  created_by?: string;
+  created_at: string;
+}
+
+export interface InvoiceSettings {
+  invoice_prefix: string;
+  invoice_show_logo: boolean;
+  invoice_show_gst: boolean;
+  invoice_show_address: boolean;
+  invoice_show_phone: boolean;
+  invoice_show_customer_name: boolean;
+  invoice_show_customer_mobile: boolean;
+  invoice_show_qr: boolean;
+  invoice_show_tax: boolean;
+  invoice_show_discount: boolean;
+  invoice_footer_message: string;
+  invoice_thank_you_message: string;
+  printer_width: '58mm' | '80mm';
+  printer_connection: 'BROWSER_DIRECT' | 'PRINT_BRIDGE';
+  whatsapp_enabled: boolean;
+  whatsapp_business_number: string;
+  whatsapp_phone_number_id: string;
+  whatsapp_account_id: string;
+  whatsapp_access_token_configured?: boolean;
+  whatsapp_template_name: string;
+  whatsapp_auto_send: boolean;
+  allow_selling_below_cost: boolean;
+  allow_negative_inventory: boolean;
+  minimum_margin_alert_percent: number;
+}
+
+export interface DailyTrendPoint {
+  date: string;
+  grossSales: number;
+  netSales: number;
+  cogs: number;
+  grossProfit: number;
+  marginPercent: number;
+  ordersCount: number;
+  unitsSold: number;
+}
+
+export interface RevenueAnalyticsReport {
+  period: {
+    range: string;
+    from: string;
+    to: string;
+  };
+  kpis: {
+    totalOrders: number;
+    totalUnitsSold: number;
+    grossSales: number;
+    itemDiscounts: number;
+    billDiscounts: number;
+    totalDiscounts: number;
+    totalTax: number;
+    netSales: number;
+    cogs: number;
+    grossProfit: number;
+    profitMargin: number;
+    markup: number;
+  };
+  trend: DailyTrendPoint[];
+  hourlyDistribution: { hour: number; count: number; revenue: number }[];
+  channels: Record<string, number>;
+  paymentMethods: Record<string, number>;
+}
+
+export interface ProductProfitabilityItem {
+  productId: string;
+  productName: string;
+  categoryName: string;
+  unit: string;
+  barcode: string;
+  unitsSold: number;
+  revenue: number;
+  cogs: number;
+  grossProfit: number;
+  marginPercent: number;
+  currentStock: number;
+  isLowMargin: boolean;
+  isNegativeProfit: boolean;
+}
+
+export interface CategoryProfitabilityItem {
+  categoryId: string;
+  categoryName: string;
+  icon: string;
+  unitsSold: number;
+  revenue: number;
+  cogs: number;
+  grossProfit: number;
+  marginPercent: number;
+}
+
+export interface InventoryValuationItem {
+  id: string;
+  name: string;
+  brand: string;
+  unit: string;
+  barcode: string;
+  sku: string;
+  categoryName: string;
+  stock: number;
+  purchaseCost: number;
+  sellingPrice: number;
+  totalCostValue: number;
+  totalRetailValue: number;
+  potentialProfit: number;
+  potentialMargin: number;
+  status: 'OUT_OF_STOCK' | 'LOW_STOCK' | 'IN_STOCK';
+}
+
+export interface InventoryValuationReport {
+  totalItems: number;
+  totalStockQty: number;
+  totalCostValue: number;
+  totalRetailValue: number;
+  potentialGrossProfit: number;
+  potentialMargin: number;
+  lowStockCount: number;
+  outOfStockCount: number;
+  items: InventoryValuationItem[];
+}
+
+export interface MonthlySummaryReport {
+  year: number;
+  months: {
+    monthNumber: number;
+    monthName: string;
+    grossSales: number;
+    netSales: number;
+    cogs: number;
+    grossProfit: number;
+    marginPercent: number;
+    ordersCount: number;
+  }[];
+}
+
+export interface CustomerUser {
+  id: string;
+  tenant_id: string;
+  name: string;
+  phone: string;
+  email?: string;
+  address?: string;
+  credit_balance?: number;
+  total_spent?: number;
+  orders_count?: number;
+  created_at?: string;
+}
+
+export interface TenantResolveResult {
+  id: string;
+  name: string;
+  slug: string;
+  tagline?: string;
+  owner_name?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  country?: string;
+  logo_url?: string;
+  banner_url?: string;
+  primary_color?: string;
+  secondary_color?: string;
+  button_color?: string;
+  status: 'ACTIVE' | 'SUSPENDED' | 'PENDING' | 'INACTIVE';
+  is_suspended?: boolean;
+  is_storefront_enabled?: boolean;
+  custom_domain?: string;
+  currency_symbol?: string;
+  min_order_value?: number;
+  delivery_charge?: number;
+  free_delivery_above?: number;
+  estimated_delivery_mins?: string;
+  store_status?: 'OPEN' | 'CLOSED';
+}
+
+

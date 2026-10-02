@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { CartItem, StoreProfile, DeliveryArea } from '../../types';
+import { CartItem, StoreProfile, DeliveryArea, CustomerUser } from '../../types';
 import { api } from '../../services/api';
 import QRCode from 'qrcode';
 import confetti from 'canvas-confetti';
@@ -13,6 +13,7 @@ interface CheckoutModalProps {
   onClose: () => void;
   items: CartItem[];
   store: StoreProfile;
+  customer?: CustomerUser | null;
   onOrderSuccess: (orderInfo: any) => void;
 }
 
@@ -21,17 +22,18 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   onClose,
   items,
   store,
+  customer,
   onOrderSuccess,
 }) => {
   if (!isOpen) return null;
 
   const [deliveryMode, setDeliveryMode] = useState<'DELIVERY' | 'PICKUP'>('DELIVERY');
-  const [customerName, setCustomerName] = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerName, setCustomerName] = useState(customer?.name || '');
+  const [customerPhone, setCustomerPhone] = useState(customer?.phone || '');
   
   // Detailed Address Fields
   const [houseNumber, setHouseNumber] = useState('');
-  const [street, setStreet] = useState('');
+  const [street, setStreet] = useState(customer?.address || '');
   const [areaName, setAreaName] = useState('');
   const [city, setCity] = useState(store.city || 'Hyderabad');
   const [stateName, setStateName] = useState('Telangana');
@@ -40,6 +42,14 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
   const [isLocating, setIsLocating] = useState(false);
+
+  useEffect(() => {
+    if (customer) {
+      if (customer.name && !customerName) setCustomerName(customer.name);
+      if (customer.phone && !customerPhone) setCustomerPhone(customer.phone);
+      if (customer.address && !street) setStreet(customer.address);
+    }
+  }, [customer]);
 
   // PIN validation state
   const [isValidatingPin, setIsValidatingPin] = useState(false);
@@ -183,6 +193,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
           product_id: it.product.id,
           quantity: it.quantity,
         })),
+        customer_id: customer?.id || null,
         customer_name: customerName.trim(),
         customer_phone: customerPhone.trim(),
         delivery_address: fullAddress,

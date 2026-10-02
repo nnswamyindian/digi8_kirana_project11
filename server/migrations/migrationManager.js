@@ -403,6 +403,317 @@ const migrations = [
         ]);
       }
     }
+  },
+  {
+    version: '20260302_001',
+    name: 'phase6_inventory_transactions_pricing_whatsapp_invoicing',
+    up: async () => {
+      // Safe column addition helper for migration
+      const safeAddColumn = async (tableName, colName, colDef) => {
+        try {
+          if (isMySQL()) {
+            const rows = await query(
+              'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = ? AND COLUMN_NAME = ?',
+              [tableName, colName]
+            );
+            if (rows.length === 0) {
+              await execute(`ALTER TABLE ${tableName} ADD COLUMN ${colName} ${colDef}`);
+              console.log(`[Migration Phase 6] Added column ${colName} to ${tableName} (MySQL)`);
+            }
+          } else {
+            const cols = await query(`PRAGMA table_info(${tableName})`);
+            const exists = cols.some(c => c.name.toLowerCase() === colName.toLowerCase());
+            if (!exists) {
+              await execute(`ALTER TABLE ${tableName} ADD COLUMN ${colName} ${colDef}`);
+              console.log(`[Migration Phase 6] Added column ${colName} to ${tableName} (SQLite)`);
+            }
+          }
+        } catch (err) {
+          // Ignore if exists
+        }
+      };
+
+      // 1. Core Phase 6 Tables
+      if (isMySQL()) {
+        await execute(`
+          CREATE TABLE IF NOT EXISTS inventory_transactions (
+            id VARCHAR(64) PRIMARY KEY,
+            tenant_id VARCHAR(64) NOT NULL,
+            product_id VARCHAR(64) NOT NULL,
+            product_name VARCHAR(200),
+            quantity DECIMAL(12,3) NOT NULL,
+            unit VARCHAR(30) NOT NULL,
+            transaction_type VARCHAR(50) NOT NULL,
+            reference_id VARCHAR(100),
+            previous_stock DECIMAL(12,3) NOT NULL,
+            new_stock DECIMAL(12,3) NOT NULL,
+            unit_cost DECIMAL(12,2) DEFAULT 0,
+            notes TEXT,
+            created_by VARCHAR(120),
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_inv_tx_tenant_prod (tenant_id, product_id),
+            INDEX idx_inv_tx_type (transaction_type),
+            INDEX idx_inv_tx_created (tenant_id, created_at)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
+
+        await execute(`
+          CREATE TABLE IF NOT EXISTS product_price_history (
+            id VARCHAR(64) PRIMARY KEY,
+            tenant_id VARCHAR(64) NOT NULL,
+            product_id VARCHAR(64) NOT NULL,
+            old_purchase_price DECIMAL(10,2),
+            new_purchase_price DECIMAL(10,2),
+            old_selling_price DECIMAL(10,2),
+            new_selling_price DECIMAL(10,2),
+            old_mrp DECIMAL(10,2),
+            new_mrp DECIMAL(10,2),
+            changed_by VARCHAR(120),
+            reason TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_pph_tenant_prod (tenant_id, product_id)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
+
+        await execute(`
+          CREATE TABLE IF NOT EXISTS product_purchase_price_history (
+            id VARCHAR(64) PRIMARY KEY,
+            tenant_id VARCHAR(64) NOT NULL,
+            product_id VARCHAR(64) NOT NULL,
+            purchase_price DECIMAL(10,2) NOT NULL,
+            quantity DECIMAL(12,3) NOT NULL,
+            supplier_id VARCHAR(64),
+            supplier_name VARCHAR(150),
+            purchase_invoice_id VARCHAR(100),
+            effective_date DATETIME,
+            created_by VARCHAR(120),
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_ppph_tenant_prod (tenant_id, product_id)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
+
+        await execute(`
+          CREATE TABLE IF NOT EXISTS whatsapp_logs (
+            id VARCHAR(64) PRIMARY KEY,
+            tenant_id VARCHAR(64) NOT NULL,
+            order_id VARCHAR(64) NOT NULL,
+            invoice_number VARCHAR(100),
+            customer_name VARCHAR(150),
+            customer_phone VARCHAR(30) NOT NULL,
+            status VARCHAR(30) NOT NULL,
+            message_id VARCHAR(120),
+            payload TEXT,
+            response TEXT,
+            error_message TEXT,
+            retry_count INT DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_wa_tenant_order (tenant_id, order_id)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
+      } else {
+        await execute(`
+          CREATE TABLE IF NOT EXISTS inventory_transactions (
+            id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            product_id TEXT NOT NULL,
+            product_name TEXT,
+            quantity REAL NOT NULL,
+            unit TEXT NOT NULL,
+            transaction_type TEXT NOT NULL,
+            reference_id TEXT,
+            previous_stock REAL NOT NULL,
+            new_stock REAL NOT NULL,
+            unit_cost REAL DEFAULT 0,
+            notes TEXT,
+            created_by TEXT,
+            created_at TEXT NOT NULL
+          );
+        `);
+
+        await execute(`
+          CREATE TABLE IF NOT EXISTS product_price_history (
+            id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            product_id TEXT NOT NULL,
+            old_purchase_price REAL,
+            new_purchase_price REAL,
+            old_selling_price REAL,
+            new_selling_price REAL,
+            old_mrp REAL,
+            new_mrp REAL,
+            changed_by TEXT,
+            reason TEXT,
+            created_at TEXT NOT NULL
+          );
+        `);
+
+        await execute(`
+          CREATE TABLE IF NOT EXISTS product_purchase_price_history (
+            id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            product_id TEXT NOT NULL,
+            purchase_price REAL NOT NULL,
+            quantity REAL NOT NULL,
+            supplier_id TEXT,
+            supplier_name TEXT,
+            purchase_invoice_id TEXT,
+            effective_date TEXT,
+            created_by TEXT,
+            created_at TEXT NOT NULL
+          );
+        `);
+
+        await execute(`
+          CREATE TABLE IF NOT EXISTS whatsapp_logs (
+            id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            order_id TEXT NOT NULL,
+            invoice_number TEXT,
+            customer_name TEXT,
+            customer_phone TEXT NOT NULL,
+            status TEXT NOT NULL,
+            message_id TEXT,
+            payload TEXT,
+            response TEXT,
+            error_message TEXT,
+            retry_count INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+        `);
+      }
+
+      // 2. Extend products table with Phase 6 & 6A columns
+      await safeAddColumn('products', 'sku', isMySQL() ? 'VARCHAR(100)' : 'TEXT');
+      await safeAddColumn('products', 'max_stock', isMySQL() ? 'DECIMAL(12,3) DEFAULT 1000' : 'REAL DEFAULT 1000');
+      await safeAddColumn('products', 'reorder_level', isMySQL() ? 'DECIMAL(12,3) DEFAULT 10' : 'REAL DEFAULT 10');
+      await safeAddColumn('products', 'supplier', isMySQL() ? 'VARCHAR(150)' : 'TEXT');
+      await safeAddColumn('products', 'hsn_sac', isMySQL() ? 'VARCHAR(50)' : 'TEXT');
+      await safeAddColumn('products', 'barcode_type', isMySQL() ? "VARCHAR(30) DEFAULT 'MANUFACTURER'" : "TEXT DEFAULT 'MANUFACTURER'");
+      await safeAddColumn('products', 'allow_zero_stock_purchase', isMySQL() ? "VARCHAR(30) DEFAULT 'DISABLE_PURCHASE'" : "TEXT DEFAULT 'DISABLE_PURCHASE'");
+      await safeAddColumn('products', 'default_discount_type', isMySQL() ? "VARCHAR(20) DEFAULT 'NONE'" : "TEXT DEFAULT 'NONE'");
+      await safeAddColumn('products', 'default_discount_value', isMySQL() ? 'DECIMAL(10,2) DEFAULT 0' : 'REAL DEFAULT 0');
+
+      // 3. Extend order_items with cost_snapshot and gross_profit for historical financial safety
+      await safeAddColumn('order_items', 'cost_snapshot', isMySQL() ? 'DECIMAL(10,2) DEFAULT 0' : 'REAL DEFAULT 0');
+      await safeAddColumn('order_items', 'gross_profit', isMySQL() ? 'DECIMAL(10,2) DEFAULT 0' : 'REAL DEFAULT 0');
+
+      // 4. Extend tenants and stores with invoice customization & WhatsApp Business configuration
+      const configCols = [
+        ['invoice_prefix', isMySQL() ? "VARCHAR(30) DEFAULT 'INV'" : "TEXT DEFAULT 'INV'"],
+        ['invoice_show_logo', isMySQL() ? 'TINYINT(1) DEFAULT 1' : 'INTEGER DEFAULT 1'],
+        ['invoice_show_gst', isMySQL() ? 'TINYINT(1) DEFAULT 1' : 'INTEGER DEFAULT 1'],
+        ['invoice_show_address', isMySQL() ? 'TINYINT(1) DEFAULT 1' : 'INTEGER DEFAULT 1'],
+        ['invoice_show_phone', isMySQL() ? 'TINYINT(1) DEFAULT 1' : 'INTEGER DEFAULT 1'],
+        ['invoice_show_customer_name', isMySQL() ? 'TINYINT(1) DEFAULT 1' : 'INTEGER DEFAULT 1'],
+        ['invoice_show_customer_mobile', isMySQL() ? 'TINYINT(1) DEFAULT 1' : 'INTEGER DEFAULT 1'],
+        ['invoice_show_qr', isMySQL() ? 'TINYINT(1) DEFAULT 1' : 'INTEGER DEFAULT 1'],
+        ['invoice_show_tax', isMySQL() ? 'TINYINT(1) DEFAULT 1' : 'INTEGER DEFAULT 1'],
+        ['invoice_show_discount', isMySQL() ? 'TINYINT(1) DEFAULT 1' : 'INTEGER DEFAULT 1'],
+        ['invoice_footer_message', isMySQL() ? "TEXT" : "TEXT DEFAULT 'Thank you for shopping with us! Visit again.'"],
+        ['invoice_thank_you_message', isMySQL() ? "TEXT" : "TEXT DEFAULT 'Thank you for your visit!'"],
+        ['whatsapp_enabled', isMySQL() ? 'TINYINT(1) DEFAULT 0' : 'INTEGER DEFAULT 0'],
+        ['whatsapp_business_number', isMySQL() ? 'VARCHAR(50)' : 'TEXT'],
+        ['whatsapp_phone_number_id', isMySQL() ? 'VARCHAR(100)' : 'TEXT'],
+        ['whatsapp_account_id', isMySQL() ? 'VARCHAR(100)' : 'TEXT'],
+        ['whatsapp_access_token', isMySQL() ? 'TEXT' : 'TEXT'],
+        ['whatsapp_template_name', isMySQL() ? "VARCHAR(100) DEFAULT 'kirana_invoice_update'" : "TEXT DEFAULT 'kirana_invoice_update'"],
+        ['whatsapp_auto_send', isMySQL() ? 'TINYINT(1) DEFAULT 0' : 'INTEGER DEFAULT 0'],
+        ['allow_selling_below_cost', isMySQL() ? 'TINYINT(1) DEFAULT 0' : 'INTEGER DEFAULT 0'],
+        ['allow_negative_inventory', isMySQL() ? 'TINYINT(1) DEFAULT 0' : 'INTEGER DEFAULT 0'],
+        ['minimum_margin_alert_percent', isMySQL() ? 'DECIMAL(5,2) DEFAULT 10' : 'REAL DEFAULT 10'],
+        ['timezone', isMySQL() ? "VARCHAR(50) DEFAULT 'Asia/Kolkata'" : "TEXT DEFAULT 'Asia/Kolkata'"],
+      ];
+
+      for (const [col, def] of configCols) {
+        await safeAddColumn('tenants', col, def);
+        await safeAddColumn('stores', col, def);
+      }
+
+      // 5. Backfill SKU on existing products if empty
+      const prods = await query('SELECT id, barcode, name FROM products WHERE sku IS NULL OR sku = ""');
+      for (const p of prods) {
+        const sku = (p.barcode || ('SKU-' + p.id)).trim();
+        await execute('UPDATE products SET sku = ? WHERE id = ?', [sku, p.id]);
+      }
+
+      // 6. Backfill cost_snapshot on existing order_items where missing
+      await execute(`
+        UPDATE order_items
+        SET cost_snapshot = cost_price,
+            gross_profit = (total_price - (cost_price * quantity))
+        WHERE cost_snapshot IS NULL OR cost_snapshot = 0
+      `);
+
+      // 7. Safe indexes for Phase 6 fast lookups
+      if (!isMySQL()) {
+        const indexes = [
+          'CREATE INDEX IF NOT EXISTS idx_prod_tenant_barcode ON products(tenant_id, barcode)',
+          'CREATE INDEX IF NOT EXISTS idx_prod_tenant_sku ON products(tenant_id, sku)',
+          'CREATE INDEX IF NOT EXISTS idx_inv_tx_lookup ON inventory_transactions(tenant_id, product_id, created_at)',
+          'CREATE INDEX IF NOT EXISTS idx_orders_tenant_date ON orders(tenant_id, created_at)'
+        ];
+        for (const idx of indexes) {
+          try { await execute(idx); } catch (e) { /* ignore */ }
+        }
+      }
+      console.log('[Migration Phase 6] Applied Phase 6 & Phase 6A schema updates successfully.');
+    }
+  },
+  {
+    version: '20260302_002',
+    name: 'digi8_customer_auth_and_storefront_expansion',
+    up: async () => {
+      const safeAddColumn = async (tableName, colName, colDef) => {
+        try {
+          if (isMySQL()) {
+            const rows = await query(
+              'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = ? AND COLUMN_NAME = ?',
+              [tableName, colName]
+            );
+            if (rows.length === 0) {
+              await execute(`ALTER TABLE ${tableName} ADD COLUMN ${colName} ${colDef}`);
+              console.log(`[Migration Digi8] Added column ${colName} to ${tableName} (MySQL)`);
+            }
+          } else {
+            const cols = await query(`PRAGMA table_info(${tableName})`);
+            const exists = cols.some(c => c.name.toLowerCase() === colName.toLowerCase());
+            if (!exists) {
+              await execute(`ALTER TABLE ${tableName} ADD COLUMN ${colName} ${colDef}`);
+              console.log(`[Migration Digi8] Added column ${colName} to ${tableName} (SQLite)`);
+            }
+          }
+        } catch (err) {
+          // Ignore if exists
+        }
+      };
+
+      // 1. Customer Authentication support
+      await safeAddColumn('customers', 'password', isMySQL() ? 'VARCHAR(255)' : 'TEXT');
+      await safeAddColumn('customers', 'pin', isMySQL() ? 'VARCHAR(20)' : 'TEXT');
+      await safeAddColumn('customers', 'status', isMySQL() ? "VARCHAR(20) DEFAULT 'ACTIVE'" : "TEXT DEFAULT 'ACTIVE'");
+
+      // 2. Storefront configuration & metadata
+      await safeAddColumn('tenants', 'is_storefront_enabled', isMySQL() ? 'TINYINT(1) DEFAULT 1' : 'INTEGER DEFAULT 1');
+      await safeAddColumn('stores', 'is_storefront_enabled', isMySQL() ? 'TINYINT(1) DEFAULT 1' : 'INTEGER DEFAULT 1');
+      await safeAddColumn('tenants', 'store_category', isMySQL() ? "VARCHAR(100) DEFAULT 'Kirana & Supermarket'" : "TEXT DEFAULT 'Kirana & Supermarket'");
+      await safeAddColumn('stores', 'store_category', isMySQL() ? "VARCHAR(100) DEFAULT 'Kirana & Supermarket'" : "TEXT DEFAULT 'Kirana & Supermarket'");
+      await safeAddColumn('tenants', 'country', isMySQL() ? "VARCHAR(100) DEFAULT 'India'" : "TEXT DEFAULT 'India'");
+      await safeAddColumn('stores', 'country', isMySQL() ? "VARCHAR(100) DEFAULT 'India'" : "TEXT DEFAULT 'India'");
+
+      // 3. Store Applications expanded metadata
+      await safeAddColumn('store_applications', 'pan_number', isMySQL() ? 'VARCHAR(20)' : 'TEXT');
+      await safeAddColumn('store_applications', 'whatsapp_number', isMySQL() ? 'VARCHAR(30)' : 'TEXT');
+      await safeAddColumn('store_applications', 'store_category', isMySQL() ? "VARCHAR(100) DEFAULT 'Kirana & Supermarket'" : "TEXT DEFAULT 'Kirana & Supermarket'");
+      await safeAddColumn('store_applications', 'country', isMySQL() ? "VARCHAR(100) DEFAULT 'India'" : "TEXT DEFAULT 'India'");
+      await safeAddColumn('store_applications', 'currency', isMySQL() ? "VARCHAR(10) DEFAULT '₹'" : "TEXT DEFAULT '₹'");
+      await safeAddColumn('store_applications', 'timezone', isMySQL() ? "VARCHAR(50) DEFAULT 'Asia/Kolkata'" : "TEXT DEFAULT 'Asia/Kolkata'");
+      await safeAddColumn('store_applications', 'delivery_available', isMySQL() ? 'TINYINT(1) DEFAULT 1' : 'INTEGER DEFAULT 1');
+      await safeAddColumn('store_applications', 'pickup_available', isMySQL() ? 'TINYINT(1) DEFAULT 1' : 'INTEGER DEFAULT 1');
+
+      console.log('[Migration Digi8] Customer auth and storefront metadata schema migration applied.');
+    }
   }
 ];
 

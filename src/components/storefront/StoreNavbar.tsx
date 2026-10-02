@@ -1,37 +1,51 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { StoreProfile, Product } from '../../types';
-import { ShoppingCart, Search, User, Clock, Phone, MapPin, Sparkles, CheckCircle2 } from 'lucide-react';
+import { StoreProfile, Product, CustomerUser } from '../../types';
+import { ShoppingCart, Search, User, Clock, Phone, MapPin, Sparkles, CheckCircle2, Bike, Lock, LogOut, Package, ChevronDown, Shield } from 'lucide-react';
 
 interface StoreNavbarProps {
   store: StoreProfile;
   cartCount: number;
   cartTotal: number;
+  customer?: CustomerUser | null;
   onOpenCart: () => void;
-  onOpenLogin: () => void;
+  onOpenCustomerAuth: () => void;
+  onOpenCustomerOrders: () => void;
+  onCustomerLogout: () => void;
+  onOpenDeliveryLogin: () => void;
+  onOpenStaffLogin: () => void;
   onSelectProduct: (product: Product) => void;
   onTrackOrder: () => void;
   products: Product[];
-  currentCategory: string;
-  onSelectCategory: (catId: string) => void;
+  currentCategory?: string;
+  onSelectCategory?: (catId: string) => void;
   onSwitchTenant?: (tenantId: string) => void;
   onRegisterStore?: () => void;
+  onGoToPlatformLanding?: () => void;
 }
 
 export const StoreNavbar: React.FC<StoreNavbarProps> = ({
   store,
   cartCount,
   cartTotal,
+  customer,
   onOpenCart,
-  onOpenLogin,
+  onOpenCustomerAuth,
+  onOpenCustomerOrders,
+  onCustomerLogout,
+  onOpenDeliveryLogin,
+  onOpenStaffLogin,
   onSelectProduct,
   onTrackOrder,
   products,
   onSwitchTenant,
   onRegisterStore,
+  onGoToPlatformLanding
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   const isOpen = store.store_status === 'OPEN';
 
@@ -49,6 +63,9 @@ export const StoreNavbar: React.FC<StoreNavbarProps> = ({
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
         setIsSearchOpen(false);
       }
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setIsUserMenuOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -57,7 +74,7 @@ export const StoreNavbar: React.FC<StoreNavbarProps> = ({
   return (
     <header>
       {/* Top Announcement Bar */}
-      <div className="top-announcement">
+      <div className="top-announcement" style={{ background: '#0f172a', borderBottom: '1px solid #1e293b' }}>
         <div className="announcement-center">
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <span style={{
@@ -76,7 +93,26 @@ export const StoreNavbar: React.FC<StoreNavbarProps> = ({
             <Phone size={13} /> {store.phone}
           </span>
         </div>
+
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {onGoToPlatformLanding && (
+            <button
+              onClick={onGoToPlatformLanding}
+              style={{
+                color: '#38bdf8',
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                background: 'rgba(56, 189, 248, 0.1)',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                border: '1px solid rgba(56, 189, 248, 0.2)',
+                cursor: 'pointer'
+              }}
+            >
+              🌐 Digi8 Apna Kirana
+            </button>
+          )}
+
           {onRegisterStore && (
             <button
               onClick={onRegisterStore}
@@ -84,7 +120,7 @@ export const StoreNavbar: React.FC<StoreNavbarProps> = ({
                 color: '#86efac',
                 fontSize: '0.75rem',
                 fontWeight: 700,
-                background: 'rgba(255,255,255,0.15)',
+                background: 'rgba(255,255,255,0.1)',
                 padding: '2px 8px',
                 borderRadius: '4px',
                 border: '1px solid rgba(255,255,255,0.2)',
@@ -94,6 +130,7 @@ export const StoreNavbar: React.FC<StoreNavbarProps> = ({
               ✨ Register Store
             </button>
           )}
+
           <button
             onClick={onTrackOrder}
             style={{ color: '#fef08a', fontSize: '0.775rem', fontWeight: 700, textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer' }}
@@ -179,8 +216,8 @@ export const StoreNavbar: React.FC<StoreNavbarProps> = ({
             )}
           </div>
 
-          {/* Actions: Cart & Owner Login */}
-          <div className="nav-actions">
+          {/* Actions: Cart, Customer Auth, Delivery Login, Staff Login */}
+          <div className="nav-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {/* Cart Trigger */}
             <button className="cart-btn" onClick={onOpenCart}>
               <ShoppingCart size={19} />
@@ -197,33 +234,132 @@ export const StoreNavbar: React.FC<StoreNavbarProps> = ({
               )}
             </button>
 
-            {onRegisterStore && (
+            {/* 1. Customer Account / Login */}
+            {customer ? (
+              <div style={{ position: 'relative' }} ref={userMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '7px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--primary-600, #16a34a)',
+                    background: '#f0fdf4',
+                    color: '#15803d',
+                    fontWeight: 700,
+                    fontSize: '0.82rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <User size={15} />
+                  <span>{customer.name.split(' ')[0]}</span>
+                  <ChevronDown size={14} />
+                </button>
+
+                {isUserMenuOpen && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      right: 0,
+                      top: 'calc(100% + 6px)',
+                      background: 'white',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '10px',
+                      boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)',
+                      minWidth: '170px',
+                      padding: '6px',
+                      zIndex: 100,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '2px'
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => { setIsUserMenuOpen(false); onOpenCustomerOrders(); }}
+                      style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'none', textAlign: 'left', width: '100%', fontSize: '0.82rem', color: '#334155', cursor: 'pointer', borderRadius: '6px' }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = '#f8fafc')}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                    >
+                      <Package size={15} color="#16a34a" />
+                      <span>My Orders</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setIsUserMenuOpen(false); onCustomerLogout(); }}
+                      style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'none', textAlign: 'left', width: '100%', fontSize: '0.82rem', color: '#dc2626', cursor: 'pointer', borderRadius: '6px' }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = '#fef2f2')}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                    >
+                      <LogOut size={15} />
+                      <span>Sign Out</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
               <button
                 className="btn btn-secondary btn-sm"
-                onClick={onRegisterStore}
+                onClick={onOpenCustomerAuth}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: '6px',
-                  background: 'rgba(2, 132, 199, 0.08)',
-                  color: '#0284c7',
-                  borderColor: '#bae6fd',
-                  fontWeight: 700,
+                  background: 'white',
+                  borderColor: '#cbd5e1',
+                  color: '#334155',
+                  fontWeight: 600,
                   fontSize: '0.8rem',
-                  padding: '6px 12px',
+                  padding: '7px 11px',
                   borderRadius: '8px'
                 }}
-                title="SaaS Platform & Merchant Onboarding"
+                title="Customer Sign In & Orders"
               >
-                <Sparkles size={14} />
-                <span>Start Your Store</span>
+                <User size={15} color="#64748b" />
+                <span>Customer Login</span>
               </button>
             )}
 
-            {/* Owner Login / Admin Portal */}
-            <button className="login-btn" onClick={onOpenLogin} title="Owner & Staff Portal">
-              <User size={16} />
-              <span>Store Login</span>
+            {/* 2. Delivery Partner Login */}
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={onOpenDeliveryLogin}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                background: '#f8fafc',
+                borderColor: '#cbd5e1',
+                color: '#475569',
+                fontSize: '0.8rem',
+                padding: '7px 10px',
+                borderRadius: '8px'
+              }}
+              title="Delivery Rider Mobile Portal"
+            >
+              <Bike size={15} color="#059669" />
+              <span>Rider</span>
+            </button>
+
+            {/* 3. Store Staff / POS Login */}
+            <button
+              className="login-btn"
+              onClick={onOpenStaffLogin}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '0.8rem',
+                padding: '7px 12px',
+                borderRadius: '8px'
+              }}
+              title="Store Owner & POS Terminal Access"
+            >
+              <Lock size={14} />
+              <span>Staff Login</span>
             </button>
           </div>
         </div>

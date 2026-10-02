@@ -196,9 +196,13 @@ async function runTests() {
     console.log(`\n🏁 Test Results: ${passed} Passed, ${failed} Failed.`);
     if (failed === 0) {
       console.log('🎉 ALL PHASE 4 ACCEPTANCE TESTS PASSED SUCCESSFULLY!\n');
+      process.exit(0);
+    } else {
+      process.exit(1);
     }
   } catch (err) {
     console.error('Fatal test error:', err);
+    process.exit(1);
   }
 }
 

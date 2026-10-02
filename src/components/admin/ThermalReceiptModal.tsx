@@ -1,8 +1,9 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { StoreProfile } from '../../types';
 import { thermalPrinter, ReceiptData } from '../../services/hardware';
+import { api } from '../../services/api';
 import QRCode from 'qrcode';
-import { X, Printer, Check } from 'lucide-react';
+import { X, Printer, Check, MessageSquare, Send, ExternalLink, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface ThermalReceiptModalProps {
   isOpen: boolean;
@@ -22,6 +23,11 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
   const [paperWidth, setPaperWidth] = React.useState<'58mm' | '80mm'>(store.printer_width || '80mm');
   const qrCanvasRef = useRef<HTMLCanvasElement>(null);
 
+  // WhatsApp dispatch states
+  const [waPhone, setWaPhone] = useState(receiptData.customer_phone || '');
+  const [isSendingWa, setIsSendingWa] = useState(false);
+  const [waFeedback, setWaFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
   // Generate UPI QR on receipt
   React.useEffect(() => {
     if (qrCanvasRef.current && store.upi_id) {
@@ -39,6 +45,48 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
   const handlePrint = () => {
     thermalPrinter.setWidth(paperWidth);
     thermalPrinter.printReceipt('printable-receipt');
+  };
+
+  const handleSendWhatsAppAPI = async () => {
+    const cleanPhone = waPhone.replace(/\D/g, '').slice(-10);
+    if (cleanPhone.length < 10) {
+      setWaFeedback({ type: 'error', message: 'Enter a valid 10-digit mobile number' });
+      return;
+    }
+
+    setIsSendingWa(true);
+    setWaFeedback(null);
+    try {
+      const res = await api.sendInvoiceWhatsApp(receiptData.invoice_no, cleanPhone);
+      setWaFeedback({
+        type: 'success',
+        message: res.message || `Invoice sent to +91 ${cleanPhone} successfully!`
+      });
+    } catch (err: any) {
+      setWaFeedback({
+        type: 'error',
+        message: err.message || 'WhatsApp Cloud API unavailable. Use direct link below.'
+      });
+    } finally {
+      setIsSendingWa(false);
+    }
+  };
+
+  const handleOpenWhatsAppDirect = () => {
+    const cleanPhone = waPhone.replace(/\D/g, '').slice(-10);
+    const target = cleanPhone.length === 10 ? '91' + cleanPhone : '';
+    const itemsSummary = (receiptData.items || [])
+      .slice(0, 5)
+      .map(it => `• ${it.name} (${it.qty} ${it.unit}) - ₹${it.amount.toFixed(2)}`)
+      .join('\n');
+    const extra = (receiptData.items?.length || 0) > 5 ? `\n...and ${(receiptData.items?.length || 0) - 5} more items` : '';
+
+    const text = `Hello *${receiptData.customer_name || 'Valued Customer'}*,\n\nThank you for shopping at *${receiptData.store_name}*!\n\n📄 *Bill No:* ${receiptData.invoice_no}\n📅 *Date:* ${receiptData.date_time}\n💰 *Total Amount:* ₹${receiptData.total.toFixed(2)}\n💳 *Payment Mode:* ${receiptData.payment_method}\n\n*Items Purchased:*\n${itemsSummary}${extra}\n\n🙏 Thank you for your visit! Visit again.`;
+
+    const url = target 
+      ? `https://api.whatsapp.com/send?phone=${target}&text=${encodeURIComponent(text)}`
+      : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank');
   };
 
   return (
@@ -177,6 +225,61 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
               <strong>** THANK YOU FOR SHOPPING WITH US! **</strong>
               <p>Fresh Groceries • Best Rates • Visit Again</p>
             </div>
+          </div>
+
+          {/* WhatsApp Digital Bill Section */}
+          <div style={{ marginTop: '16px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '12px 14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#166534', fontWeight: 700, fontSize: '0.85rem' }}>
+                <MessageSquare size={16} color="#16a34a" />
+                <span>Send Digital Bill to WhatsApp</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleOpenWhatsAppDirect}
+                style={{ background: 'none', border: 'none', color: '#15803d', fontSize: '0.75rem', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px', cursor: 'pointer', padding: 0 }}
+                title="Open WhatsApp Web or App directly"
+              >
+                <span>Direct Chat</span>
+                <ExternalLink size={12} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="tel"
+                value={waPhone}
+                onChange={(e) => setWaPhone(e.target.value)}
+                placeholder="10-digit mobile number"
+                maxLength={10}
+                style={{ flex: 1, padding: '7px 10px', borderRadius: '6px', border: '1px solid #86efac', fontSize: '0.85rem', background: 'white' }}
+              />
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={handleSendWhatsAppAPI}
+                disabled={isSendingWa}
+                style={{ background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', padding: '0 14px', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}
+              >
+                <Send size={13} />
+                <span>{isSendingWa ? 'Sending...' : 'Send WhatsApp'}</span>
+              </button>
+            </div>
+
+            {waFeedback && (
+              <div style={{
+                marginTop: '8px',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                color: waFeedback.type === 'success' ? '#15803d' : '#b91c1c'
+              }}>
+                {waFeedback.type === 'success' ? <CheckCircle2 size={13} /> : <AlertCircle size={13} />}
+                <span>{waFeedback.message}</span>
+              </div>
+            )}
           </div>
         </div>
 

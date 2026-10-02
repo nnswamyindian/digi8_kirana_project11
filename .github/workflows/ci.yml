@@ -1,0 +1,135 @@
+name: Kirana SaaS Platform CI Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # --------------------------------------------------------------------------
+  # JOB 1: Code Quality, Linting & TypeScript Typecheck
+  # --------------------------------------------------------------------------
+  typecheck-and-lint:
+    name: Code Quality & Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: TypeScript Typecheck
+        run: npm run typecheck
+
+      - name: Security Vulnerabilities Audit
+        run: npm audit --audit-level=high || true
+
+  # --------------------------------------------------------------------------
+  # JOB 2: Comprehensive Test Suite (Dual-Engine SQLite + MySQL 8.0)
+  # --------------------------------------------------------------------------
+  test-suite:
+    name: Test Suite (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    needs: typecheck-and-lint
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20.x, 22.x]
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root_test_password
+          MYSQL_DATABASE: kirana_saas_test_db
+          MYSQL_USER: kirana_test_user
+          MYSQL_PASSWORD: kirana_test_password
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=5
+
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Stage 1 - Run Unit & Offline Acceptance Tests (SQLite)
+        run: npm run test:unit
+        env:
+          NODE_ENV: test
+          DB_CLIENT: sqlite
+
+      - name: Stage 2 - Run Live Multi-Tenant Integration Tests
+        run: npm run test:integration
+        env:
+          NODE_ENV: test
+          DB_CLIENT: sqlite
+          TEST_PORT: 5000
+
+      - name: Stage 3 - Verify MySQL Schema Migration Compatibility
+        run: |
+          echo "Testing MySQL 8.0 schema import..."
+          mysql -h 127.0.0.1 -P 3306 -u kirana_test_user -pkirana_test_password kirana_saas_test_db < database/schema.sql
+          mysql -h 127.0.0.1 -P 3306 -u kirana_test_user -pkirana_test_password kirana_saas_test_db < database/seed.sql
+          echo "MySQL 8.0 schema and seed tables successfully imported!"
+
+  # --------------------------------------------------------------------------
+  # JOB 3: Production Frontend Bundle Compilation & Artifact Packaging
+  # --------------------------------------------------------------------------
+  build-production-bundle:
+    name: Build Frontend Production Bundle
+    runs-on: ubuntu-latest
+    needs: test-suite
+
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Compile Frontend Bundle (Vite)
+        run: npm run build
+
+      - name: Validate Production Build Output
+        run: |
+          test -d dist || { echo "dist directory does not exist"; exit 1; }
+          test -f dist/index.html || { echo "dist/index.html does not exist"; exit 1; }
+          echo "✅ Production bundle built successfully. Listing contents:"
+          ls -la dist/
+
+      - name: Upload Production Dist Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kirana-production-dist-${{ github.sha }}
+          path: dist/
+          retention-days: 7

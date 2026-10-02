@@ -8,6 +8,9 @@ import { paymentService } from './payment/paymentService.js';
 import { deliveryService } from './delivery/deliveryService.js';
 import { notificationService } from './notifications/notificationService.js';
 import platformRoutes from './platform/platformRoutes.js';
+import phase6Routes from './routes/phase6Routes.js';
+import customerRoutes from './routes/customerRoutes.js';
+import { whatsappService } from './services/whatsappService.js';
 import { resolveTenant, logAuditEvent } from './tenant/tenantMiddleware.js';
 import { tokenService } from './auth/tokenService.js';
 import { optionalAuth } from './auth/authMiddleware.js';
@@ -52,6 +55,14 @@ app.use((req, res, next) => {
 app.use(resolveTenant);
 app.use(optionalAuth);
 app.use('/api/platform', platformRoutes);
+app.use('/api', phase6Routes);
+app.use('/api', customerRoutes);
+
+// Health Check direct aliases for load balancers, monitoring & CI/CD probes
+app.get(['/health', '/api/health'], (req, res, next) => {
+  req.url = '/health';
+  platformRoutes(req, res, next);
+});
 
 // Store connected SSE clients for real-time broadcasts
 const sseClients = new Set();
@@ -934,9 +945,35 @@ app.post('/api/orders/pos', async (req, res) => {
     // Auto-generate invoice and order number with tenant-scoping
     const countRow = await getOne('SELECT COUNT(*) as count FROM orders WHERE tenant_id = ? OR store_id = ?', [tenantId, tenantId]);
     const nextSeq = (countRow?.count || 0) + 1;
-    const invoiceNumber = `INV-${String(nextSeq).padStart(6, '0')}`;
+    const invPrefix = store.invoice_prefix || 'INV';
+    const invoiceNumber = `${invPrefix}-${String(nextSeq).padStart(6, '0')}`;
     const orderNumber = `POS-${1000 + nextSeq}`;
     const orderId = 'ord_' + Math.random().toString(36).substring(2, 9);
+
+    // Automatic Tenant-Scoped Customer Capture & Lookup
+    let resolvedCustomerId = customer?.id || null;
+    let resolvedCustomerName = customer?.name || req.body.customer_name || 'Walk-in Customer';
+    let resolvedCustomerPhone = customer?.phone || req.body.customer_phone || '';
+
+    if (resolvedCustomerPhone && resolvedCustomerPhone.trim().length >= 10) {
+      const cleanPhone = resolvedCustomerPhone.replace(/[^0-9]/g, '');
+      const existingCust = await getOne(
+        'SELECT * FROM customers WHERE (tenant_id = ? OR store_id = ?) AND (phone LIKE ? OR phone LIKE ?) LIMIT 1',
+        [tenantId, tenantId, `%${cleanPhone.slice(-10)}`, cleanPhone]
+      );
+      if (existingCust) {
+        resolvedCustomerId = existingCust.id;
+        if (!resolvedCustomerName || resolvedCustomerName === 'Walk-in Customer') {
+          resolvedCustomerName = existingCust.name;
+        }
+      } else {
+        resolvedCustomerId = 'cust_' + Math.random().toString(36).substring(2, 9);
+        await execute(`
+          INSERT INTO customers (id, store_id, tenant_id, name, phone, email, address, credit_balance, total_spent, orders_count, created_at)
+          VALUES (?, ?, ?, ?, ?, '', '', 0, 0, 0, ?)
+        `, [resolvedCustomerId, tenantId, tenantId, resolvedCustomerName, resolvedCustomerPhone.trim(), now]);
+      }
+    }
 
     let subtotalGross = 0;
     let totalItemDiscounts = 0;
@@ -951,7 +988,22 @@ app.post('/api/orders/pos', async (req, res) => {
       const originalPrice = prod ? Number(prod.selling_price) : Number(item.unit_price);
       let unitPrice = Number(item.unit_price) || originalPrice;
       const costPrice = Number(item.cost_price || (prod ? prod.purchase_cost : 0));
+      const minSellingPrice = Number(prod ? prod.min_selling_price : 0) || costPrice;
       const manualAdjusted = Boolean(item.manual_price_adjusted || (Math.abs(unitPrice - originalPrice) > 0.01));
+
+      // Minimum Selling Price & Below Cost check
+      if (unitPrice < minSellingPrice || unitPrice < costPrice) {
+        const mgrPin = (manager_approval && manager_approval.approved_by_pin) || item.manager_pin;
+        if (!mgrPin && !Boolean(store.allow_selling_below_cost)) {
+          return res.status(403).json({
+            error: `Selling price ₹${unitPrice} for "${item.product_name || 'item'}" is below the allowed minimum/cost of ₹${minSellingPrice}. Manager approval required.`,
+            requires_manager_approval: true,
+            item_name: item.product_name,
+            unit_price: unitPrice,
+            min_price: minSellingPrice
+          });
+        }
+      }
 
       const lineGross = Math.round(qty * originalPrice * 100) / 100;
       subtotalGross += lineGross;
@@ -979,7 +1031,6 @@ app.post('/api/orders/pos', async (req, res) => {
       if (discountPct > cashierMaxPct) {
         const mgrPin = (manager_approval && manager_approval.approved_by_pin) || item.manager_pin;
         if (!mgrPin) {
-          // If no manager approval was provided in request, reject
           return res.status(403).json({
             error: `Discount of ${discountPct.toFixed(1)}% on ${item.product_name || 'item'} exceeds cashier limit of ${cashierMaxPct}%. Manager PIN approval is required.`,
             requires_manager_approval: true,
@@ -1018,6 +1069,7 @@ app.post('/api/orders/pos', async (req, res) => {
       totalTax += tax;
 
       const lineFinal = Math.round((taxable + tax) * 100) / 100;
+      const grossProfitLine = Math.round((lineFinal - (qty * costPrice)) * 100) / 100;
 
       processedItems.push({
         id: 'item_' + Math.random().toString(36).substring(2, 9),
@@ -1029,6 +1081,8 @@ app.post('/api/orders/pos', async (req, res) => {
         quantity: qty,
         unit_price: unitPrice,
         cost_price: costPrice,
+        cost_snapshot: costPrice,
+        gross_profit: grossProfitLine,
         gross_amount: lineGross,
         discount_type: dType,
         discount_value: dVal,
@@ -1059,7 +1113,7 @@ app.post('/api/orders/pos', async (req, res) => {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       orderId, tenantId, tenantId, orderNumber, invoiceNumber, 'POS', 'DELIVERED',
-      customer?.id || null, customer?.name || 'Walk-in Customer', customer?.phone || 'N/A', 'Store Checkout Counter',
+      resolvedCustomerId, resolvedCustomerName, resolvedCustomerPhone || 'N/A', 'Store Checkout Counter',
       subtotalGross, overallDiscount, 0, totalTax, finalBillTotal,
       'PAID', payment_method || 'CASH', notes || '', now, now
     ]);
@@ -1069,21 +1123,22 @@ app.post('/api/orders/pos', async (req, res) => {
       await execute(`
         INSERT INTO order_items (
           id, order_id, tenant_id, product_id, product_name, unit, quantity,
-          unit_price, cost_price, gross_amount, discount_type, discount_value,
+          unit_price, cost_price, cost_snapshot, gross_profit, gross_amount, discount_type, discount_value,
           discount_amount, taxable_amount, gst_percent, tax_amount, total_price,
           manual_price_adjusted, original_unit_price, discount_reason, approval_data
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         pit.id, orderId, tenantId, pit.product_id, pit.product_name, pit.unit,
-        pit.quantity, pit.unit_price, pit.cost_price, pit.gross_amount,
-        pit.discount_type, pit.discount_value, pit.discount_amount,
+        pit.quantity, pit.unit_price, pit.cost_price, pit.cost_snapshot, pit.gross_profit,
+        pit.gross_amount, pit.discount_type, pit.discount_value, pit.discount_amount,
         pit.taxable_amount, pit.gst_percent, pit.tax_amount, pit.total_price,
         pit.manual_price_adjusted, pit.original_unit_price, pit.discount_reason,
         pit.approval_data
       ]);
 
       if (pit.prod_ref) {
-        const newStock = Math.max(0, pit.prod_ref.stock - pit.quantity);
+        const previousStock = Number(pit.prod_ref.stock) || 0;
+        const newStock = Math.max(0, previousStock - pit.quantity);
         await execute('UPDATE products SET stock = ?, updated_at = ? WHERE id = ?', [newStock, now, pit.prod_ref.id]);
 
         // Stock movement
@@ -1095,20 +1150,33 @@ app.post('/api/orders/pos', async (req, res) => {
           tenantId, tenantId, pit.prod_ref.id, -pit.quantity, newStock, 'POS_SALE', orderId,
           `POS Bill #${invoiceNumber}`, now
         ]);
+
+        // Inventory Transaction (Phase 6 audit trail)
+        await execute(`
+          INSERT INTO inventory_transactions (
+            id, tenant_id, product_id, product_name, quantity, unit, transaction_type,
+            reference_id, previous_stock, new_stock, unit_cost, notes, created_by, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          'tx_' + Math.random().toString(36).substring(2, 9),
+          tenantId, pit.prod_ref.id, pit.product_name, -pit.quantity, pit.unit, 'SALE',
+          invoiceNumber, previousStock, newStock, pit.cost_price,
+          `POS Sale Invoice #${invoiceNumber}`, cashier_name || 'Cashier', now
+        ]);
       }
     }
 
     // Customer credit / spending update if customer attached
-    if (customer && customer.id) {
+    if (resolvedCustomerId) {
       if (payment_method === 'CREDIT') {
-        const newBalance = (customer.credit_balance || 0) + finalBillTotal;
-        await execute('UPDATE customers SET credit_balance = ?, total_spent = total_spent + ?, orders_count = orders_count + 1 WHERE id = ?', [newBalance, finalBillTotal, customer.id]);
+        const newBalance = (customer?.credit_balance || 0) + finalBillTotal;
+        await execute('UPDATE customers SET credit_balance = ?, total_spent = total_spent + ?, orders_count = orders_count + 1 WHERE id = ?', [newBalance, finalBillTotal, resolvedCustomerId]);
         await execute(`
           INSERT INTO customer_ledger (id, customer_id, store_id, tenant_id, type, amount, balance_after, notes, created_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, ['led_' + Math.random().toString(36).substring(2, 9), customer.id, tenantId, tenantId, 'DEBIT_PURCHASE', finalBillTotal, newBalance, `POS Bill #${invoiceNumber}`, now]);
+        `, ['led_' + Math.random().toString(36).substring(2, 9), resolvedCustomerId, tenantId, tenantId, 'DEBIT_PURCHASE', finalBillTotal, newBalance, `POS Bill #${invoiceNumber}`, now]);
       } else {
-        await execute('UPDATE customers SET total_spent = total_spent + ?, orders_count = orders_count + 1 WHERE id = ?', [finalBillTotal, customer.id]);
+        await execute('UPDATE customers SET total_spent = total_spent + ?, orders_count = orders_count + 1 WHERE id = ?', [finalBillTotal, resolvedCustomerId]);
       }
     }
 
@@ -1138,6 +1206,17 @@ app.post('/api/orders/pos', async (req, res) => {
       tenant_id: tenantId
     }, tenantId);
 
+    // Auto WhatsApp trigger if store has auto send enabled
+    if (store.whatsapp_auto_send && resolvedCustomerPhone && resolvedCustomerPhone.length >= 10) {
+      whatsappService.sendInvoice({
+        orderId,
+        tenantId,
+        customerPhoneOverride: resolvedCustomerPhone
+      }).catch(waErr => {
+        console.warn('[Auto WhatsApp Dispatch Notice]:', waErr.message);
+      });
+    }
+
     res.json({
       success: true,
       order_id: orderId,
@@ -1147,6 +1226,9 @@ app.post('/api/orders/pos', async (req, res) => {
       discount_amount: overallDiscount,
       tax_amount: totalTax,
       total_amount: finalBillTotal,
+      customer_id: resolvedCustomerId,
+      customer_name: resolvedCustomerName,
+      customer_phone: resolvedCustomerPhone,
       created_at: now
     });
   } catch (err) {
@@ -1833,16 +1915,17 @@ app.post('/api/delivery-areas/validate-pincode', async (req, res) => {
 // ----------------------------------------------------
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { phone, pin } = req.body;
-    if (!phone || !pin) {
-      return res.status(400).json({ error: 'Mobile number and Security PIN are required' });
+    const { phone, pin, password } = req.body;
+    const credential = pin || password;
+    if (!phone || !credential) {
+      return res.status(400).json({ error: 'Mobile number and Security PIN/Password are required' });
     }
 
     const cleanPhone = String(phone).trim();
-    const cleanPin = String(pin).trim();
+    const cleanSecret = String(credential).trim();
 
     // Check user: match phone and pin
-    const user = await getOne('SELECT * FROM users WHERE phone = ? AND pin = ? AND status = "ACTIVE"', [cleanPhone, cleanPin]);
+    const user = await getOne('SELECT * FROM users WHERE phone = ? AND pin = ? AND status = "ACTIVE"', [cleanPhone, cleanSecret]);
 
     if (!user) {
       return res.status(401).json({ error: 'Invalid mobile number or PIN. Please verify your credentials.' });
@@ -2874,6 +2957,21 @@ app.post('/api/notifications/mark-all-read', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ----------------------------------------------------
+// Production Static File Serving & Single Page App (SPA) Routing
+// ----------------------------------------------------
+const DIST_DIR = path.join(__dirname, '../dist');
+if (fs.existsSync(DIST_DIR)) {
+  app.use(express.static(DIST_DIR));
+  app.use((req, res, next) => {
+    // Only handle non-API GET routes with SPA index.html fallback
+    if (req.method === 'GET' && !req.path.startsWith('/api') && !req.path.startsWith('/uploads')) {
+      return res.sendFile(path.join(DIST_DIR, 'index.html'));
+    }
+    next();
+  });
+}
 
 // Startup & Database Initializer
 initDatabase().then(() => {

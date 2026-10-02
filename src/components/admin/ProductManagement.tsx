@@ -21,8 +21,14 @@ import {
   Camera,
   Image as ImageIcon,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  FileSpreadsheet,
+  TrendingUp,
+  Coins,
+  Tag
 } from 'lucide-react';
+import { BulkProductImportModal } from './BulkProductImportModal';
+import { BulkPriceStockModal } from './BulkPriceStockModal';
 
 interface ProductManagementProps {
   categories: Category[];
@@ -81,6 +87,27 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   // Price History Modal State
   const [selectedHistoryProduct, setSelectedHistoryProduct] = useState<Product | null>(null);
   const [priceHistory, setPriceHistory] = useState<any[]>([]);
+
+  // Bulk Import Modal State (Phase 6)
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
+  // Bulk Price & Stock Update Modal State (Phase 6)
+  const [isBulkPriceStockOpen, setIsBulkPriceStockOpen] = useState(false);
+
+  const handleDownloadTemplate = async () => {
+    try {
+      const blob = await api.downloadImportTemplate();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'grocery_product_bulk_upload_template.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(err.message || 'Failed to download sample Excel template');
+    }
+  };
 
   const loadProducts = async () => {
     try {
@@ -339,7 +366,36 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
         </div>
 
         {/* Action Buttons */}
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={handleDownloadTemplate}
+            title="Download official grocery import Excel template"
+            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <Download size={15} />
+            <span>Download Sample Excel</span>
+          </button>
+
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => setIsBulkImportOpen(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <FileSpreadsheet size={15} color="#10b981" />
+            <span>Bulk Import</span>
+          </button>
+
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => setIsBulkPriceStockOpen(true)}
+            title="Update prices & stock for multiple products via CSV"
+            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <Tag size={15} color="#7c3aed" />
+            <span>Bulk Price &amp; Stock</span>
+          </button>
+
           <button className="btn btn-secondary btn-sm" onClick={() => setIsBulkPriceOpen(true)}>
             <Percent size={15} />
             <span>Bulk Price Update</span>
@@ -594,7 +650,18 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     />
                   </div>
 
-                  {/* Unit Type */}
+                  {/* SKU */}
+                  <div className="form-group">
+                    <label>SKU (Stock Keeping Unit)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. RICE001, OIL-SUN-1L"
+                      value={formData.sku || ''}
+                      onChange={(e) => setFormData({ ...formData, sku: e.target.value.toUpperCase() })}
+                    />
+                  </div>
+
+                  {/* Packaging / Unit */}
                   <div className="form-group">
                     <label>Packaging / Unit *</label>
                     <select
@@ -604,24 +671,28 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                         setFormData({
                           ...formData,
                           unit: u,
-                          is_loose: u === 'KG' || u === 'GRAM' || u === 'LITRE' ? 1 : 0
+                          is_loose: ['KG', 'GRAM', 'LITRE', 'ML'].includes(u) ? 1 : 0
                         });
                       }}
                     >
+                      <option value="PACKET">PACKET (Packaged)</option>
                       <option value="KG">KG (Kilogram - Loose)</option>
                       <option value="GRAM">GRAM (Loose)</option>
                       <option value="LITRE">LITRE (Loose)</option>
-                      <option value="PACKET">PACKET (Packaged)</option>
-                      <option value="BOX">BOX (Packaged)</option>
-                      <option value="PIECE">PIECE (Individual)</option>
-                      <option value="DOZEN">DOZEN (12 Pcs)</option>
+                      <option value="ML">ML (Millilitre)</option>
+                      <option value="BOX">BOX (Carton)</option>
+                      <option value="BOTTLE">BOTTLE</option>
+                      <option value="PIECE">PIECE (Individual Item)</option>
+                      <option value="DOZEN">DOZEN (12 Units)</option>
+                      <option value="BAG">BAG (Sack / Bori)</option>
+                      <option value="BUNDLE">BUNDLE</option>
                     </select>
                   </div>
 
                   {/* Barcode with Duplicate Check & Internal Generator */}
-                  <div className="form-group">
+                  <div className="form-group" style={{ gridColumn: 'span 2' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                      <label style={{ margin: 0 }}>Barcode / EAN</label>
+                      <label style={{ margin: 0 }}>Barcode / EAN (Tenant Scoped)</label>
                       <button
                         type="button"
                         onClick={handleGenerateBarcode}
@@ -661,7 +732,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     )}
                   </div>
 
-                  {/* Pricing Section */}
+                  {/* Pricing Inputs */}
                   <div className="form-group">
                     <label>Purchase Cost (₹) *</label>
                     <input
@@ -674,7 +745,18 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                   </div>
 
                   <div className="form-group">
-                    <label>Selling Price (₹) *</label>
+                    <label>Printed MRP (₹) *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      value={formData.mrp}
+                      onChange={(e) => setFormData({ ...formData, mrp: parseFloat(e.target.value) || 0 })}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Store Selling Price (₹) *</label>
                     <input
                       type="number"
                       step="0.01"
@@ -685,15 +767,129 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                   </div>
 
                   <div className="form-group">
-                    <label>MRP (₹) *</label>
+                    <label>Min. Selling Price (Floor Price ₹)</label>
                     <input
                       type="number"
                       step="0.01"
-                      required
-                      value={formData.mrp}
-                      onChange={(e) => setFormData({ ...formData, mrp: parseFloat(e.target.value) || 0 })}
+                      placeholder="Optional price floor"
+                      value={formData.min_selling_price || 0}
+                      onChange={(e) => setFormData({ ...formData, min_selling_price: parseFloat(e.target.value) || 0 })}
                     />
                   </div>
+
+                  <div className="form-group">
+                    <label>Wholesale Price (₹)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="B2B / bulk price"
+                      value={formData.wholesale_price || 0}
+                      onChange={(e) => setFormData({ ...formData, wholesale_price: parseFloat(e.target.value) || 0 })}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>GST Rate (%)</label>
+                    <select
+                      value={formData.gst_percent}
+                      onChange={(e) => setFormData({ ...formData, gst_percent: parseFloat(e.target.value) || 0 })}
+                    >
+                      <option value="0">0% (Nil / Exempted Foodgrain)</option>
+                      <option value="5">5% (Edible Oils, Spices)</option>
+                      <option value="12">12% (Ghee, Butter)</option>
+                      <option value="18">18% (Soaps, Detergents)</option>
+                      <option value="28">28% (Luxury / Aerated)</option>
+                    </select>
+                  </div>
+
+                  {/* PHASE 6A: REAL-TIME MARGIN & PROFITABILITY CALCULATION CARD */}
+                  {(() => {
+                    const cost = Number(formData.purchase_cost) || 0;
+                    const selling = Number(formData.selling_price) || 0;
+                    const mrp = Number(formData.mrp) || 0;
+                    const minPrice = Number(formData.min_selling_price) || 0;
+                    const profit = selling - cost;
+                    const marginPct = selling > 0 ? (profit / selling) * 100 : 0;
+                    const markupPct = cost > 0 ? (profit / cost) * 100 : 0;
+                    const savings = mrp > selling ? mrp - selling : 0;
+
+                    const isExceedsMRP = mrp > 0 && selling > mrp;
+                    const isBelowCost = cost > 0 && selling < cost;
+                    const isBelowMin = minPrice > 0 && selling < minPrice;
+
+                    return (
+                      <div
+                        style={{
+                          gridColumn: 'span 2',
+                          background: isBelowCost ? '#fff1f2' : isExceedsMRP ? '#fffbeb' : '#f8fafc',
+                          border: `1px solid ${isBelowCost ? '#fecdd3' : isExceedsMRP ? '#fef3c7' : '#e2e8f0'}`,
+                          borderRadius: '10px',
+                          padding: '14px 16px',
+                          margin: '4px 0 10px 0'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                          <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <TrendingUp size={15} color={profit >= 0 ? '#10b981' : '#ef4444'} />
+                            <span>Real-Time Pricing & Profit Analysis</span>
+                          </span>
+                          <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                            Customer Savings: <strong style={{ color: '#059669' }}>₹{savings.toFixed(2)}</strong>
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', textAlign: 'center' }}>
+                          <div style={{ background: 'white', padding: '8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>EXPECTED PROFIT</div>
+                            <div style={{ fontSize: '1.05rem', fontWeight: 700, color: profit >= 0 ? '#166534' : '#b91c1c' }}>
+                              ₹{profit.toFixed(2)}
+                            </div>
+                          </div>
+
+                          <div style={{ background: 'white', padding: '8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>PROFIT MARGIN</div>
+                            <div style={{ fontSize: '1.05rem', fontWeight: 700, color: marginPct >= 15 ? '#166534' : marginPct > 0 ? '#b45309' : '#b91c1c' }}>
+                              {marginPct.toFixed(2)}%
+                            </div>
+                          </div>
+
+                          <div style={{ background: 'white', padding: '8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>COST MARKUP</div>
+                            <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#1e40af' }}>
+                              {markupPct.toFixed(2)}%
+                            </div>
+                          </div>
+
+                          <div style={{ background: 'white', padding: '8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>DISCOUNT OFF MRP</div>
+                            <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#475569' }}>
+                              {mrp > 0 ? ((savings / mrp) * 100).toFixed(1) : 0}%
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Real-time Validation Warnings */}
+                        {isExceedsMRP && (
+                          <div style={{ marginTop: '8px', fontSize: '0.8rem', color: '#b45309', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <AlertCircle size={14} />
+                            <span>Warning: Selling price (₹{selling}) exceeds printed MRP (₹{mrp}).</span>
+                          </div>
+                        )}
+                        {isBelowCost && (
+                          <div style={{ marginTop: '8px', fontSize: '0.8rem', color: '#b91c1c', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <AlertCircle size={14} />
+                            <span>Critical: Selling price is below purchase cost! Sale will result in ₹{Math.abs(profit).toFixed(2)} gross loss per unit.</span>
+                          </div>
+                        )}
+                        {isBelowMin && (
+                          <div style={{ marginTop: '8px', fontSize: '0.8rem', color: '#d97706', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <AlertCircle size={14} />
+                            <span>Alert: Selling price is below the configured minimum floor price (₹{minPrice}).</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   <div className="form-group">
                     <label>Opening Stock ({formData.unit})</label>
@@ -712,19 +908,6 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                       value={formData.min_stock}
                       onChange={(e) => setFormData({ ...formData, min_stock: parseFloat(e.target.value) || 5 })}
                     />
-                  </div>
-
-                  <div className="form-group">
-                    <label>GST Rate (%)</label>
-                    <select
-                      value={formData.gst_percent}
-                      onChange={(e) => setFormData({ ...formData, gst_percent: parseFloat(e.target.value) || 0 })}
-                    >
-                      <option value="0">0% (Nil / Exempted Foodgrain)</option>
-                      <option value="5">5% (Edible Oils, Spices)</option>
-                      <option value="12">12% (Ghee, Butter)</option>
-                      <option value="18">18% (Soaps, Detergents)</option>
-                    </select>
                   </div>
 
                   {/* ====================================================
@@ -1064,6 +1247,20 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
           </div>
         </div>
       )}
+
+      {/* PHASE 6: BULK PRODUCT IMPORT MODAL */}
+      <BulkProductImportModal
+        isOpen={isBulkImportOpen}
+        onClose={() => setIsBulkImportOpen(false)}
+        onImportSuccess={() => loadProducts()}
+      />
+
+      {/* PHASE 6: BULK PRICE & STOCK UPDATE MODAL */}
+      <BulkPriceStockModal
+        isOpen={isBulkPriceStockOpen}
+        onClose={() => setIsBulkPriceStockOpen(false)}
+        onSuccess={() => loadProducts()}
+      />
     </div>
   );
 };

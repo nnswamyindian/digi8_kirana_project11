@@ -93,8 +93,12 @@ async function runRecommendationValidation() {
     console.log(`📊 Recommendation Validation: ${passed} PASSED, ${failed} FAILED`);
     console.log(`========================================\n`);
 
+    if (failed > 0) {
+      process.exit(1);
+    }
   } catch (err) {
     console.error('Fatal test error:', err);
+    process.exit(1);
   }
 }
 
@@ -104,3 +108,4 @@ runRecommendationValidation().then(() => {
   console.error(e);
   process.exit(1);
 });
+

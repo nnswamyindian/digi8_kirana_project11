@@ -1,7 +1,10 @@
 import {
   StoreProfile, Category, Product, Order, Customer, Supplier, Purchase, DashboardReport,
-  PaymentTransaction, PaymentSettings, DeliveryCashCollection, CashHandoverSession,
-  NotificationEvent, ActiveDeliveryAgent, PaymentReconciliationData, Tenant, PlatformAdminStats
+  PaymentTransaction, PaymentSettings, InvoiceSettings, DeliveryCashCollection, CashHandoverSession,
+  NotificationEvent, ActiveDeliveryAgent, PaymentReconciliationData, Tenant, PlatformAdminStats,
+  BulkImportValidationResult, BulkImportConfirmResult, InventoryTransaction,
+  RevenueAnalyticsReport, ProductProfitabilityItem, CategoryProfitabilityItem,
+  InventoryValuationReport, MonthlySummaryReport
 } from '../types';
 
 const BASE_URL = '/api';
@@ -773,7 +776,6 @@ export const api = {
     if (!res.ok) throw new Error(data.error || 'Failed to update payment settings');
     return data;
   },
-
   async getPaymentReconciliation(params?: { startDate?: string; endDate?: string }): Promise<PaymentReconciliationData> {
     const query = new URLSearchParams();
     if (params?.startDate) query.append('startDate', params.startDate);
@@ -1321,6 +1323,287 @@ export const api = {
       body: JSON.stringify({ subject, description, priority })
     });
     return res.json();
+  },
+
+  // ----------------------------------------------------
+  // PHASE 6 & 6A: BULK IMPORT, BARCODE, INVENTORY & ANALYTICS
+  // ----------------------------------------------------
+  async downloadImportTemplate(): Promise<Blob> {
+    const res = await apiFetch(`${BASE_URL}/products/import/template`);
+    if (!res.ok) throw new Error('Failed to download Excel template');
+    return res.blob();
+  },
+
+  async validateProductImport(file: File): Promise<BulkImportValidationResult> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const headers = getHeaders();
+    delete headers['Content-Type']; // Let browser set multipart boundary
+    const res = await fetch(`${BASE_URL}/products/import/validate`, {
+      method: 'POST',
+      headers,
+      body: formData
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Failed to validate Excel import file');
+    return result;
+  },
+
+  async confirmProductImport(rows: any[], mode: 'create_only' | 'create_and_update'): Promise<BulkImportConfirmResult> {
+    const res = await apiFetch(`${BASE_URL}/products/import/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rows, mode })
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Failed to confirm bulk import');
+    return result;
+  },
+
+  async getProductByBarcode(barcode: string): Promise<Product> {
+    const res = await apiFetch(`${BASE_URL}/products/barcode/${encodeURIComponent(barcode)}`);
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Product not found for this barcode');
+    return result;
+  },
+
+  async receiveStock(data: {
+    barcode?: string;
+    product_id?: string;
+    received_quantity: number;
+    purchase_price?: number;
+    supplier?: string;
+    update_master_purchase_price?: boolean;
+    update_master_selling_price?: boolean;
+    new_selling_price?: number;
+    notes?: string;
+  }): Promise<any> {
+    const res = await apiFetch(`${BASE_URL}/inventory/receive`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Failed to receive stock');
+    return result;
+  },
+
+  async getProductStockHistory(productId: string): Promise<InventoryTransaction[]> {
+    const res = await apiFetch(`${BASE_URL}/inventory/history/${productId}`);
+    if (!res.ok) throw new Error('Failed to fetch stock history');
+    return res.json();
+  },
+
+  async getInventoryTransactions(params?: { limit?: number; offset?: number; type?: string }): Promise<InventoryTransaction[]> {
+    const q = new URLSearchParams();
+    if (params?.limit) q.append('limit', String(params.limit));
+    if (params?.offset) q.append('offset', String(params.offset));
+    if (params?.type) q.append('type', params.type);
+    const res = await apiFetch(`${BASE_URL}/inventory/transactions?${q.toString()}`);
+    if (!res.ok) throw new Error('Failed to fetch inventory transactions');
+    return res.json();
+  },
+
+  async getProductPriceHistory(productId: string): Promise<any> {
+    const res = await apiFetch(`${BASE_URL}/products/${productId}/price-history`);
+    if (!res.ok) throw new Error('Failed to fetch price history');
+    return res.json();
+  },
+
+  async lookupCustomerByMobile(mobile: string): Promise<{ customer: Customer | null; previousOrdersCount: number }> {
+    const res = await apiFetch(`${BASE_URL}/customers/lookup/${encodeURIComponent(mobile)}`);
+    if (!res.ok) throw new Error('Failed to lookup customer');
+    return res.json();
+  },
+
+  async sendInvoiceWhatsApp(invoiceId: string, customPhone?: string): Promise<{ success: boolean; message: string; messageId?: string }> {
+    const res = await apiFetch(`${BASE_URL}/invoices/${invoiceId}/send-whatsapp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customPhone })
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Failed to send WhatsApp invoice');
+    return result;
+  },
+
+  async getInvoiceWhatsAppLogs(invoiceId: string): Promise<any[]> {
+    const res = await apiFetch(`${BASE_URL}/invoices/${invoiceId}/whatsapp-logs`);
+    if (!res.ok) throw new Error('Failed to fetch WhatsApp logs');
+    return res.json();
+  },
+
+  async getInvoiceSettings(): Promise<InvoiceSettings> {
+    const res = await apiFetch(`${BASE_URL}/store/invoice-settings`);
+    if (!res.ok) throw new Error('Failed to fetch invoice settings');
+    return res.json();
+  },
+
+  async updateInvoiceSettings(settings: Partial<InvoiceSettings>): Promise<{ success: boolean; message: string }> {
+    const res = await apiFetch(`${BASE_URL}/store/invoice-settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings)
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Failed to update invoice settings');
+    return result;
+  },
+
+  async getRevenueAnalytics(params?: { range?: string; from?: string; to?: string; channel?: string; payment_method?: string; cashier_id?: string }): Promise<RevenueAnalyticsReport> {
+    const q = new URLSearchParams();
+    if (params?.range) q.append('range', params.range);
+    if (params?.from) q.append('from', params.from);
+    if (params?.to) q.append('to', params.to);
+    if (params?.channel) q.append('channel', params.channel);
+    if (params?.payment_method) q.append('payment_method', params.payment_method);
+    if (params?.cashier_id) q.append('cashier_id', params.cashier_id);
+    const res = await apiFetch(`${BASE_URL}/reports/revenue-analytics?${q.toString()}`);
+    if (!res.ok) throw new Error('Failed to fetch revenue analytics');
+    return res.json();
+  },
+
+  async getProductProfitability(params?: { range?: string; from?: string; to?: string; limit?: number; sort_by?: string }): Promise<ProductProfitabilityItem[]> {
+    const q = new URLSearchParams();
+    if (params?.range) q.append('range', params.range);
+    if (params?.from) q.append('from', params.from);
+    if (params?.to) q.append('to', params.to);
+    if (params?.limit) q.append('limit', String(params.limit));
+    if (params?.sort_by) q.append('sort_by', params.sort_by);
+    const res = await apiFetch(`${BASE_URL}/reports/product-profitability?${q.toString()}`);
+    if (!res.ok) throw new Error('Failed to fetch product profitability');
+    return res.json();
+  },
+
+  async getCategoryProfitability(params?: { range?: string; from?: string; to?: string }): Promise<CategoryProfitabilityItem[]> {
+    const q = new URLSearchParams();
+    if (params?.range) q.append('range', params.range);
+    if (params?.from) q.append('from', params.from);
+    if (params?.to) q.append('to', params.to);
+    const res = await apiFetch(`${BASE_URL}/reports/category-profitability?${q.toString()}`);
+    if (!res.ok) throw new Error('Failed to fetch category profitability');
+    return res.json();
+  },
+
+  async getInventoryValuation(): Promise<InventoryValuationReport> {
+    const res = await apiFetch(`${BASE_URL}/reports/inventory-valuation`);
+    if (!res.ok) throw new Error('Failed to fetch inventory valuation');
+    return res.json();
+  },
+
+  async getMonthlySummary(year?: number): Promise<MonthlySummaryReport> {
+    const q = new URLSearchParams();
+    if (year) q.append('year', String(year));
+    const res = await apiFetch(`${BASE_URL}/reports/monthly-summary?${q.toString()}`);
+    if (!res.ok) throw new Error('Failed to fetch monthly summary');
+    return res.json();
+  },
+
+  async lookupProductByBarcode(barcode: string): Promise<{ found: boolean; product?: any }> {
+    const res = await apiFetch(`${BASE_URL}/products/barcode/${encodeURIComponent(barcode)}`);
+    if (res.status === 404) return { found: false };
+    if (!res.ok) throw new Error('Barcode lookup failed');
+    return res.json();
+  },
+
+  async updateProductPriceAndStock(barcode: string, data: {
+    new_cost?: number;
+    new_selling_price?: number;
+    new_mrp?: number;
+    set_stock?: number;
+    add_stock?: number;
+  }): Promise<{ success: boolean; message: string }> {
+    const res = await apiFetch(`${BASE_URL}/products/barcode/${encodeURIComponent(barcode)}/price-stock`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Failed to update product');
+    return result;
+  },
+
+  // ====================================================
+  // TENANT DYNAMIC RESOLVER
+  // ====================================================
+  async resolveTenant(identifier?: string): Promise<{ success: boolean; tenant?: any; error?: string }> {
+    const query = identifier ? `?identifier=${encodeURIComponent(identifier)}` : '';
+    const res = await apiFetch(`${BASE_URL}/tenant/resolve${query}`);
+    return res.json();
+  },
+
+  // ====================================================
+  // DEDICATED CUSTOMER AUTHENTICATION & PORTAL
+  // ====================================================
+  async customerRegister(data: {
+    name: string;
+    phone: string;
+    email?: string;
+    password: string;
+    address?: string;
+    city?: string;
+    pincode?: string;
+  }): Promise<any> {
+    const res = await apiFetch(`${BASE_URL}/auth/customer/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Failed to create customer account');
+    if (result.token) {
+      localStorage.setItem('kirana_customer_token', result.token);
+      localStorage.setItem('kirana_customer_user', JSON.stringify(result.customer));
+    }
+    return result;
+  },
+
+  async customerLogin(data: { phone: string; password?: string; pin?: string }): Promise<any> {
+    const res = await apiFetch(`${BASE_URL}/auth/customer/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Customer login failed');
+    if (result.token) {
+      localStorage.setItem('kirana_customer_token', result.token);
+      localStorage.setItem('kirana_customer_user', JSON.stringify(result.customer));
+    }
+    return result;
+  },
+
+  async getCustomerProfile(): Promise<any> {
+    const token = localStorage.getItem('kirana_customer_token');
+    if (!token) return null;
+    try {
+      const res = await apiFetch(`${BASE_URL}/customer/me`, {
+        headers: { 'authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) return null;
+      return res.json();
+    } catch {
+      return null;
+    }
+  },
+
+  async getCustomerOrders(): Promise<any[]> {
+    const token = localStorage.getItem('kirana_customer_token');
+    if (!token) return [];
+    try {
+      const res = await apiFetch(`${BASE_URL}/customer/orders`, {
+        headers: { 'authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) return [];
+      return res.json();
+    } catch {
+      return [];
+    }
+  },
+
+  logoutCustomer() {
+    localStorage.removeItem('kirana_customer_token');
+    localStorage.removeItem('kirana_customer_user');
   }
 };
 

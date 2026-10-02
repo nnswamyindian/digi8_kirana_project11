@@ -1,0 +1,56 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kirana-saas-app
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - NODE_ENV=production
+      - DB_CLIENT=mysql
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_NAME=kirana_saas_db
+      - DB_USER=kirana_admin
+      - DB_PASSWORD=${DB_PASSWORD:-KiranaSecurePass_2026!}
+      - JWT_SECRET=${JWT_SECRET:-production_super_jwt_secret_key_2026}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - kirana-network
+
+  db:
+    image: mysql:8.0
+    container_name: kirana-mysql-db
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-RootPassSecure_2026!}
+      MYSQL_DATABASE: kirana_saas_db
+      MYSQL_USER: kirana_admin
+      MYSQL_PASSWORD: ${DB_PASSWORD:-KiranaSecurePass_2026!}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "kirana_admin", "-p${DB_PASSWORD:-KiranaSecurePass_2026!}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kirana-network
+
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  kirana-network:
+    driver: bridge

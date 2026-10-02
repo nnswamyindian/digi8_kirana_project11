@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Product } from '../../types';
 import { api } from '../../services/api';
-import { Warehouse, AlertTriangle, ArrowUpDown, Plus, Minus, Search, CheckCircle2, X } from 'lucide-react';
+import { Warehouse, AlertTriangle, ArrowUpDown, Plus, Minus, Search, CheckCircle2, X, PackagePlus, History } from 'lucide-react';
+import { StockReceiveModal } from './StockReceiveModal';
+import { StockHistoryModal } from './StockHistoryModal';
 
 export const InventoryManagement: React.FC = () => {
   const [valuation, setValuation] = useState<any | null>(null);
@@ -15,6 +17,10 @@ export const InventoryManagement: React.FC = () => {
   const [adjustType, setAdjustType] = useState<'ADD' | 'REMOVE' | 'SET'>('ADD');
   const [adjustQty, setAdjustQty] = useState<number>(5);
   const [adjustReason, setAdjustReason] = useState<string>('Physical count reconciliation');
+
+  // Phase 6: Stock Receive & History States
+  const [isStockReceiveOpen, setIsStockReceiveOpen] = useState(false);
+  const [selectedHistoryProduct, setSelectedHistoryProduct] = useState<Product | null>(null);
 
   const loadInventory = async () => {
     try {
@@ -139,7 +145,16 @@ export const InventoryManagement: React.FC = () => {
           />
         </div>
 
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => setIsStockReceiveOpen(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            <PackagePlus size={16} />
+            <span>Stock Receive (Barcode)</span>
+          </button>
+
           <button
             className={`btn-sm ${filter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
             onClick={() => setFilter('all')}
@@ -175,7 +190,7 @@ export const InventoryManagement: React.FC = () => {
               <th>Total Cost Value</th>
               <th>Total Retail Value</th>
               <th>Status</th>
-              <th>Quick Adjustment</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -226,18 +241,30 @@ export const InventoryManagement: React.FC = () => {
                     )}
                   </td>
                   <td>
-                    <button
-                      className="btn-sm btn-secondary"
-                      onClick={() => {
-                        setAdjustingProduct(p);
-                        setAdjustQty(10);
-                        setAdjustType('ADD');
-                      }}
-                      style={{ gap: '4px' }}
-                    >
-                      <ArrowUpDown size={13} />
-                      <span>Adjust</span>
-                    </button>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button
+                        className="btn-sm btn-secondary"
+                        onClick={() => {
+                          setAdjustingProduct(p);
+                          setAdjustQty(10);
+                          setAdjustType('ADD');
+                        }}
+                        style={{ gap: '4px' }}
+                      >
+                        <ArrowUpDown size={13} />
+                        <span>Adjust</span>
+                      </button>
+
+                      <button
+                        className="btn-sm btn-secondary"
+                        onClick={() => setSelectedHistoryProduct(p)}
+                        title="View stock history & transactions"
+                        style={{ gap: '4px' }}
+                      >
+                        <History size={13} />
+                        <span>History</span>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -333,6 +360,21 @@ export const InventoryManagement: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* PHASE 6: STOCK RECEIVE BY BARCODE MODAL */}
+      <StockReceiveModal
+        isOpen={isStockReceiveOpen}
+        onClose={() => setIsStockReceiveOpen(false)}
+        products={items}
+        onReceiveSuccess={() => loadInventory()}
+      />
+
+      {/* PHASE 6: STOCK HISTORY MODAL */}
+      <StockHistoryModal
+        isOpen={Boolean(selectedHistoryProduct)}
+        onClose={() => setSelectedHistoryProduct(null)}
+        product={selectedHistoryProduct}
+      />
     </div>
   );
 };
