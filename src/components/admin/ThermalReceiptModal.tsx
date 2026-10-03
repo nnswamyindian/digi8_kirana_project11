@@ -20,8 +20,13 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const [paperWidth, setPaperWidth] = React.useState<'58mm' | '80mm'>(store.printer_width || '80mm');
+  const [paperWidth, setPaperWidth] = React.useState<'58mm' | '80mm'>(store?.printer_width || '80mm');
   const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string>('');
+
+  // Robust UPI ID and Store Name fallbacks
+  const activeUpiId = receiptData.upi_id || store?.upi_id || 'apnakirana@okhdfcbank';
+  const activeStoreName = receiptData.store_name || store?.name || 'Apna Kirana';
 
   // WhatsApp dispatch states
   const [waPhone, setWaPhone] = useState(receiptData.customer_phone || '');
@@ -30,17 +35,37 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
 
   // Generate UPI QR on receipt
   React.useEffect(() => {
-    if (qrCanvasRef.current && store.upi_id) {
-      const upiUrl = `upi://pay?pa=${encodeURIComponent(store.upi_id)}&pn=${encodeURIComponent(store.name)}&am=${receiptData.total.toFixed(2)}&cu=INR&tn=${encodeURIComponent('Bill ' + receiptData.invoice_no)}`;
+    if (!activeUpiId) return;
+
+    const totalVal = typeof receiptData.total === 'number'
+      ? receiptData.total.toFixed(2)
+      : Number(receiptData.total || 0).toFixed(2);
+    const invoiceLabel = receiptData.invoice_no || 'Bill';
+    const upiUrl = `upi://pay?pa=${encodeURIComponent(activeUpiId)}&pn=${encodeURIComponent(activeStoreName)}&am=${totalVal}&cu=INR&tn=${encodeURIComponent('Bill ' + invoiceLabel)}`;
+    const qrSize = paperWidth === '58mm' ? 100 : 130;
+
+    // Direct Canvas Rendering
+    if (qrCanvasRef.current) {
       QRCode.toCanvas(qrCanvasRef.current, upiUrl, {
-        width: paperWidth === '58mm' ? 100 : 130,
+        width: qrSize,
         margin: 1,
         color: { dark: '#000000', light: '#ffffff' }
       }, (err) => {
-        if (err) console.error('Error drawing receipt QR:', err);
+        if (err) console.error('Error drawing receipt QR to canvas:', err);
       });
     }
-  }, [receiptData, store, paperWidth]);
+
+    // High compatibility DataURL for printing & crisp image display
+    QRCode.toDataURL(upiUrl, {
+      width: qrSize,
+      margin: 1,
+      color: { dark: '#000000', light: '#ffffff' }
+    }).then(url => {
+      setQrDataUrl(url);
+    }).catch(err => {
+      console.error('Error generating receipt QR data URL:', err);
+    });
+  }, [receiptData, store, paperWidth, activeUpiId, activeStoreName]);
 
   const handlePrint = () => {
     thermalPrinter.setWidth(paperWidth);
@@ -216,9 +241,23 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
 
             {/* UPI QR & Footer */}
             <div className="receipt-qr-center">
-              <canvas ref={qrCanvasRef} style={{ display: 'block', margin: '0 auto 6px' }} />
+              {qrDataUrl ? (
+                <img
+                  src={qrDataUrl}
+                  alt="Scan to Pay UPI QR"
+                  style={{
+                    display: 'block',
+                    margin: '0 auto 6px',
+                    width: paperWidth === '58mm' ? '100px' : '130px',
+                    height: paperWidth === '58mm' ? '100px' : '130px',
+                    imageRendering: 'pixelated',
+                  }}
+                />
+              ) : (
+                <canvas ref={qrCanvasRef} style={{ display: 'block', margin: '0 auto 6px' }} />
+              )}
               <span style={{ fontSize: '0.7rem', fontWeight: 700 }}>Scan with GPay / PhonePe / Paytm</span>
-              <span style={{ fontSize: '0.65rem' }}>UPI: {store.upi_id}</span>
+              <span style={{ fontSize: '0.65rem' }}>UPI: {activeUpiId}</span>
             </div>
 
             <div style={{ textAlign: 'center', fontSize: '0.75rem', marginTop: '8px', lineHeight: 1.4 }}>

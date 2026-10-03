@@ -128,19 +128,33 @@ export class ThermalPrinterAdapter {
 }
 
 // ----------------------------------------------------
-// 2. BARCODE SCANNER HARDWARE LISTENER (Keyboard Wedge)
+// 2. BARCODE SCANNER HARDWARE LISTENER (Keyboard Wedge: USB & Bluetooth HID)
 // ----------------------------------------------------
+
+export function normalizeBarcode(raw: string): string {
+  if (!raw) return '';
+  return String(raw)
+    .trim()
+    .replace(/[\r\n\t\x00-\x1F\x7F]/g, '');
+}
+
 export class BarcodeScannerListener {
   private buffer: string = '';
   private lastTime: number = 0;
   private onScanCallback: ((barcode: string) => void) | null = null;
+  private onStatusCallback: ((ready: boolean) => void) | null = null;
   private listener: ((e: KeyboardEvent) => void) | null = null;
+  private lastScannedBarcode: string = '';
+  private lastScannedTime: number = 0;
+  private isConnected: boolean = false;
 
-  connect(onScan: (barcode: string) => void) {
+  connect(onScan: (barcode: string) => void, onStatusChange?: (ready: boolean) => void) {
     this.onScanCallback = onScan;
+    this.onStatusCallback = onStatusChange || null;
+    this.isConnected = true;
+    if (this.onStatusCallback) this.onStatusCallback(true);
 
     this.listener = (e: KeyboardEvent) => {
-      // Don't intercept if user is actively typing in a standard input or textarea
       const target = e.target as HTMLElement;
       const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA');
 
@@ -148,53 +162,99 @@ export class BarcodeScannerListener {
       const diff = now - this.lastTime;
       this.lastTime = now;
 
-      // Fast typing typical of hardware barcode scanners (< 60ms between characters)
-      if (e.key === 'Enter') {
-        if (this.buffer.length >= 4) {
+      // Terminators typical of retail USB/Bluetooth scanners: Enter or Tab
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        const raw = this.buffer;
+        const code = normalizeBarcode(raw);
+        this.buffer = '';
+
+        if (code.length >= 4) {
+          // Scanner burst detected
           e.preventDefault();
-          const code = this.buffer.trim();
-          this.buffer = '';
+
+          // Debounce duplicate hardware bounces (< 250ms with identical code)
+          if (code === this.lastScannedBarcode && now - this.lastScannedTime < 250) {
+            return;
+          }
+
+          this.lastScannedBarcode = code;
+          this.lastScannedTime = now;
+
           if (this.onScanCallback) {
-            this.playBeep();
+            this.playBeep('success');
             this.onScanCallback(code);
           }
-        } else {
+        }
+      } else if (e.key && e.key.length === 1) {
+        // Inter-character interval for hardware scanners is ultra-fast (< 65ms)
+        // If delay is large, clear buffer unless starting a new sequence
+        if (diff > 90 && this.buffer.length > 0) {
           this.buffer = '';
         }
-      } else if (e.key.length === 1) {
-        // Reset buffer if delay is too long unless it's the very first char
-        if (diff > 120 && this.buffer.length > 0 && !isInput) {
-          this.buffer = '';
-        }
-        if (!isInput || diff < 50) {
+
+        // If inside an input field, only capture if typing speed indicates a scanner (< 65ms)
+        if (!isInput || diff < 65 || this.buffer.length > 3) {
           this.buffer += e.key;
         }
       }
     };
 
-    window.addEventListener('keydown', this.listener);
+    window.addEventListener('keydown', this.listener, true);
   }
 
   disconnect() {
     if (this.listener) {
-      window.removeEventListener('keydown', this.listener);
+      window.removeEventListener('keydown', this.listener, true);
       this.listener = null;
+    }
+    this.isConnected = false;
+    if (this.onStatusCallback) this.onStatusCallback(false);
+  }
+
+  onStatusChange(callback: (ready: boolean) => void) {
+    this.onStatusCallback = callback;
+    if (this.onStatusCallback) {
+      this.onStatusCallback(this.isConnected);
     }
   }
 
-  playBeep() {
+  isReady(): boolean {
+    return this.isConnected;
+  }
+
+  playBeep(type: 'success' | 'alert' | 'error' = 'success') {
     try {
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const audioCtx = new AudioCtx();
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(1800, audioCtx.currentTime);
-      gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
       osc.connect(gain);
       gain.connect(audioCtx.destination);
-      osc.start();
-      osc.stop(audioCtx.currentTime + 0.1);
+
+      if (type === 'success') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(1760, audioCtx.currentTime); // A6
+        gain.gain.setValueAtTime(0.18, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.08);
+      } else if (type === 'alert') {
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(1046, audioCtx.currentTime); // C6
+        osc.frequency.setValueAtTime(1318, audioCtx.currentTime + 0.06); // E6
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.16);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.16);
+      } else {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.2);
+      }
     } catch {}
   }
 }

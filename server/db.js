@@ -561,6 +561,24 @@ export async function initDatabase() {
         created_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS global_product_catalog (
+        id TEXT PRIMARY KEY,
+        barcode TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        brand TEXT,
+        category TEXT,
+        subcategory TEXT,
+        unit TEXT DEFAULT 'PACKET',
+        pack_size TEXT,
+        mrp REAL,
+        hsn_code TEXT,
+        manufacturer TEXT,
+        image_url TEXT,
+        description TEXT,
+        source TEXT DEFAULT 'DIGI8_MASTER',
+        created_at TEXT NOT NULL
+      );
+
     `);
   }
 
@@ -588,6 +606,11 @@ export async function initDatabase() {
   await safeAddCol('stores', 'button_color', 'TEXT');
   await safeAddCol('stores', 'cashier_max_discount', 'REAL');
   await safeAddCol('stores', 'manager_max_discount', 'REAL');
+  await safeAddCol('stores', 'weighted_barcode_enabled', 'INTEGER');
+  await safeAddCol('stores', 'weighted_barcode_prefix', 'TEXT');
+  await safeAddCol('tenants', 'upi_id', 'TEXT');
+  await safeAddCol('tenants', 'weighted_barcode_enabled', 'INTEGER');
+  await safeAddCol('tenants', 'weighted_barcode_prefix', 'TEXT');
 
   await safeAddCol('categories', 'tenant_id', 'TEXT');
   await safeAddCol('products', 'tenant_id', 'TEXT');
@@ -642,6 +665,8 @@ export async function initDatabase() {
       'CREATE INDEX IF NOT EXISTS idx_products_tenant ON products(tenant_id, category_id)',
       'CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id)',
       'CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)',
+      'CREATE INDEX IF NOT EXISTS idx_products_tenant_barcode ON products(tenant_id, barcode)',
+      'CREATE INDEX IF NOT EXISTS idx_global_product_barcode ON global_product_catalog(barcode)',
       'CREATE INDEX IF NOT EXISTS idx_orders_tenant_status ON orders(tenant_id, status)',
       'CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone)',
       'CREATE INDEX IF NOT EXISTS idx_payment_trans_order ON payment_transactions(order_id)',
@@ -651,6 +676,210 @@ export async function initDatabase() {
     for (const idx of indexes) {
       try { await execute(idx); } catch (e) { /* ignore index duplicate */ }
     }
+  }
+
+  // Seed Digi8 Global Product Master Catalog if empty
+  try {
+    const globalCount = await getOne('SELECT COUNT(*) as count FROM global_product_catalog');
+    if (!globalCount || globalCount.count === 0) {
+      const sampleGlobalProducts = [
+        {
+          id: 'gp_8901725181223',
+          barcode: '8901725181223',
+          name: 'Aashirvaad Superior MP Whole Wheat Atta 5kg',
+          brand: 'Aashirvaad',
+          category: 'Grocery & Staples',
+          subcategory: 'Atta & Flour',
+          unit: 'BAG',
+          pack_size: '5 KG',
+          mrp: 310,
+          hsn_code: '1101',
+          manufacturer: 'ITC Limited',
+          image_url: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&w=400&q=80',
+          description: '100% pure whole wheat flour processed from the finest grains with natural dietary fibers.'
+        },
+        {
+          id: 'gp_8901058852370',
+          barcode: '8901058852370',
+          name: 'Maggi 2-Minute Masala Instant Noodles 70g',
+          brand: 'Maggi',
+          category: 'Snacks & Biscuits',
+          subcategory: 'Noodles & Pasta',
+          unit: 'PACKET',
+          pack_size: '70 g',
+          mrp: 14,
+          hsn_code: '1902',
+          manufacturer: 'Nestle India Ltd',
+          image_url: 'https://images.unsplash.com/photo-1612927601601-6638404737ce?auto=format&fit=crop&w=400&q=80',
+          description: 'Favorite Indian noodle with signature tastemaker spices.'
+        },
+        {
+          id: 'gp_8901491101838',
+          barcode: '8901491101838',
+          name: 'Tata Salt Vacuum Evaporated Iodised Salt 1kg',
+          brand: 'Tata',
+          category: 'Grocery & Staples',
+          subcategory: 'Salt & Sugar',
+          unit: 'PACKET',
+          pack_size: '1 KG',
+          mrp: 28,
+          hsn_code: '2501',
+          manufacturer: 'Tata Consumer Products Ltd',
+          image_url: 'https://images.unsplash.com/photo-1518110925495-5fe2fda0442c?auto=format&fit=crop&w=400&q=80',
+          description: 'Desh Ka Namak - Vacuum evaporated pure iodised table salt.'
+        },
+        {
+          id: 'gp_8901063142275',
+          barcode: '8901063142275',
+          name: 'Parle-G Original Glucose Biscuits 250g',
+          brand: 'Parle',
+          category: 'Snacks & Biscuits',
+          subcategory: 'Biscuits & Cookies',
+          unit: 'PACKET',
+          pack_size: '250 g',
+          mrp: 25,
+          hsn_code: '1905',
+          manufacturer: 'Parle Products Pvt Ltd',
+          image_url: 'https://images.unsplash.com/photo-1558961363-fa8fdf82db35?auto=format&fit=crop&w=400&q=80',
+          description: 'World largest selling biscuit with taste and wholesome energy.'
+        },
+        {
+          id: 'gp_8901262010014',
+          barcode: '8901262010014',
+          name: 'Amul Pasteurised Salted Butter 100g',
+          brand: 'Amul',
+          category: 'Dairy & Bakery',
+          subcategory: 'Butter & Cheese',
+          unit: 'PACKET',
+          pack_size: '100 g',
+          mrp: 56,
+          hsn_code: '0405',
+          manufacturer: 'GCMMF Ltd (Amul)',
+          image_url: 'https://images.unsplash.com/photo-1589985270826-4b7bb135bc9d?auto=format&fit=crop&w=400&q=80',
+          description: 'Utterly Butterly Delicious pure milk fat butter.'
+        },
+        {
+          id: 'gp_8901030383700',
+          barcode: '8901030383700',
+          name: 'Surf Excel Easy Wash Detergent Powder 1kg',
+          brand: 'Surf Excel',
+          category: 'Household Care',
+          subcategory: 'Detergents & Laundry',
+          unit: 'PACKET',
+          pack_size: '1 KG',
+          mrp: 145,
+          hsn_code: '3402',
+          manufacturer: 'Hindustan Unilever Ltd',
+          image_url: 'https://images.unsplash.com/photo-1585421514738-01798e348b17?auto=format&fit=crop&w=400&q=80',
+          description: 'Easy stain removal in bucket wash.'
+        },
+        {
+          id: 'gp_8901030825316',
+          barcode: '8901030825316',
+          name: 'Dettol Original Germ Protection Bathing Soap 75g',
+          brand: 'Dettol',
+          category: 'Personal Care',
+          subcategory: 'Soaps & Body Wash',
+          unit: 'PIECE',
+          pack_size: '75 g',
+          mrp: 38,
+          hsn_code: '3401',
+          manufacturer: 'Reckitt Benckiser India',
+          image_url: 'https://images.unsplash.com/photo-1600857544200-b2f666a9a2ec?auto=format&fit=crop&w=400&q=80',
+          description: 'Provides trusted 99.9% germ protection.'
+        },
+        {
+          id: 'gp_8906007280014',
+          barcode: '8906007280014',
+          name: 'Fortune Sunlite Refined Sunflower Oil 1L Pouch',
+          brand: 'Fortune',
+          category: 'Grocery & Staples',
+          subcategory: 'Cooking Oils & Ghee',
+          unit: 'PACKET',
+          pack_size: '1 L',
+          mrp: 165,
+          hsn_code: '1512',
+          manufacturer: 'Adani Wilmar Ltd',
+          image_url: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?auto=format&fit=crop&w=400&q=80',
+          description: 'Light, healthy cooking oil enriched with Vitamins A & D.'
+        },
+        {
+          id: 'gp_8901030013447',
+          barcode: '8901030013447',
+          name: 'Brooke Bond Red Label Strong Tea 500g',
+          brand: 'Red Label',
+          category: 'Beverages',
+          subcategory: 'Tea & Coffee',
+          unit: 'PACKET',
+          pack_size: '500 g',
+          mrp: 290,
+          hsn_code: '0902',
+          manufacturer: 'Hindustan Unilever Ltd',
+          image_url: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=400&q=80',
+          description: 'Rich CTC tea infused with warm quality flavor.'
+        },
+        {
+          id: 'gp_8901548141015',
+          barcode: '8901548141015',
+          name: 'Haldirams Nagpur Aloo Bhujia 200g',
+          brand: 'Haldirams',
+          category: 'Snacks & Biscuits',
+          subcategory: 'Namkeen & Snacks',
+          unit: 'PACKET',
+          pack_size: '200 g',
+          mrp: 55,
+          hsn_code: '2106',
+          manufacturer: 'Haldiram Foods International',
+          image_url: 'https://images.unsplash.com/photo-1599490659213-e2b9527bd087?auto=format&fit=crop&w=400&q=80',
+          description: 'Crispy potato sev seasoned with traditional Indian spices.'
+        },
+        {
+          id: 'gp_8901314010528',
+          barcode: '8901314010528',
+          name: 'Colgate MaxFresh Peppermint Ice Toothpaste 150g',
+          brand: 'Colgate',
+          category: 'Personal Care',
+          subcategory: 'Oral Care',
+          unit: 'PACKET',
+          pack_size: '150 g',
+          mrp: 110,
+          hsn_code: '3306',
+          manufacturer: 'Colgate-Palmolive India Ltd',
+          image_url: 'https://images.unsplash.com/photo-1559591937-e160e13291d9?auto=format&fit=crop&w=400&q=80',
+          description: 'Cooling crystals for intense freshness and cavity protection.'
+        },
+        {
+          id: 'gp_8901030895470',
+          barcode: '8901030895470',
+          name: 'Vim Dishwash Liquid Gel Lemon 500ml',
+          brand: 'Vim',
+          category: 'Household Care',
+          subcategory: 'Utensil Cleaners',
+          unit: 'BOTTLE',
+          pack_size: '500 ml',
+          mrp: 135,
+          hsn_code: '3402',
+          manufacturer: 'Hindustan Unilever Ltd',
+          image_url: 'https://images.unsplash.com/photo-1585421514738-01798e348b17?auto=format&fit=crop&w=400&q=80',
+          description: 'Powerful degreaser with real lemon juice extracts.'
+        }
+      ];
+
+      const nowStr = new Date().toISOString();
+      for (const gp of sampleGlobalProducts) {
+        await execute(`
+          INSERT INTO global_product_catalog (
+            id, barcode, name, brand, category, subcategory, unit, pack_size, mrp, hsn_code, manufacturer, image_url, description, source, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          gp.id, gp.barcode, gp.name, gp.brand, gp.category, gp.subcategory, gp.unit,
+          gp.pack_size, gp.mrp, gp.hsn_code, gp.manufacturer, gp.image_url, gp.description, 'DIGI8_MASTER', nowStr
+        ]);
+      }
+      console.log('[Migration] Seeded Digi8 Master FMCG Global Product Catalog.');
+    }
+  } catch (err) {
+    console.warn('[Global Catalog Seed Warning]:', err.message);
   }
 
   // Migrate or Seed Tenant 001 ("Royal Kirana" / "Apna Kirana")
@@ -718,6 +947,27 @@ export async function initDatabase() {
   await execute('UPDATE delivery_areas SET tenant_id = "store_royal_001" WHERE tenant_id IS NULL OR tenant_id = ""');
   await execute('UPDATE users SET tenant_id = "store_royal_001" WHERE (tenant_id IS NULL OR tenant_id = "") AND role != "PLATFORM_ADMIN"');
   await execute('UPDATE payment_settings SET tenant_id = "store_royal_001" WHERE tenant_id IS NULL OR tenant_id = ""');
+
+  // Synchronize UPI ID to tenants and stores
+  try {
+    await execute(`
+      UPDATE tenants 
+      SET upi_id = (SELECT upi_id FROM stores WHERE upi_id IS NOT NULL AND upi_id != '' LIMIT 1)
+      WHERE upi_id IS NULL OR upi_id = ''
+    `);
+    await execute(`
+      UPDATE tenants 
+      SET upi_id = 'apnakirana@okhdfcbank'
+      WHERE upi_id IS NULL OR upi_id = ''
+    `);
+    await execute(`
+      UPDATE stores 
+      SET upi_id = 'apnakirana@okhdfcbank'
+      WHERE upi_id IS NULL OR upi_id = ''
+    `);
+  } catch (err) {
+    // ignore
+  }
 
   // Seed Tenant 002 ("Fresh Mart Superstore" / slug: "fresh-mart") for multi-tenancy verification
   const freshTenant = await getOne('SELECT id FROM tenants WHERE id = ?', ['store_fresh_002']);

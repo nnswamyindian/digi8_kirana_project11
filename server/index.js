@@ -14,6 +14,7 @@ import { whatsappService } from './services/whatsappService.js';
 import { resolveTenant, logAuditEvent } from './tenant/tenantMiddleware.js';
 import { tokenService } from './auth/tokenService.js';
 import { optionalAuth } from './auth/authMiddleware.js';
+import { barcodeService } from './services/barcodeService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -177,6 +178,18 @@ app.get('/api/store', async (req, res) => {
     if (!store) {
       store = await getOne('SELECT * FROM stores LIMIT 1');
     }
+
+    if (store) {
+      if (!store.phone && store.owner_phone) {
+        store.phone = store.owner_phone;
+      }
+      if (!store.upi_id) {
+        const fallbackStore = await getOne('SELECT upi_id FROM stores WHERE id = ? OR id = "store_royal_001" LIMIT 1', [tenantId]);
+        const paySettings = await getOne('SELECT store_upi_id FROM payment_settings WHERE tenant_id = ? OR id = "default" LIMIT 1', [tenantId]);
+        store.upi_id = fallbackStore?.upi_id || paySettings?.store_upi_id || 'apnakirana@okhdfcbank';
+      }
+    }
+
     res.json(store);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -188,6 +201,7 @@ app.put('/api/store', async (req, res) => {
     const s = req.body;
     const tenantId = req.tenant?.id || s.id || 'store_royal_001';
     const now = new Date().toISOString();
+    const activeUpi = s.upi_id || 'apnakirana@okhdfcbank';
 
     // Update in stores table
     await execute(`
@@ -203,7 +217,7 @@ app.put('/api/store', async (req, res) => {
       WHERE id = ?
     `, [
       s.name, s.tagline, s.owner_name, s.phone, s.email, s.address,
-      s.gstin, s.upi_id, s.min_order_value, s.delivery_charge,
+      s.gstin, activeUpi, s.min_order_value, s.delivery_charge,
       s.free_delivery_above, s.estimated_delivery_mins, s.store_status,
       s.opening_time, s.closing_time, s.operating_days, s.logo_url,
       s.printer_width, s.printer_connection,
@@ -216,7 +230,7 @@ app.put('/api/store', async (req, res) => {
     await execute(`
       UPDATE tenants SET
         name = ?, tagline = ?, owner_name = ?, owner_phone = ?, owner_email = ?, address = ?,
-        gstin = ?, min_order_value = ?, delivery_charge = ?, free_delivery_above = ?,
+        gstin = ?, upi_id = ?, min_order_value = ?, delivery_charge = ?, free_delivery_above = ?,
         estimated_delivery_mins = ?, store_status = ?, opening_time = ?, closing_time = ?,
         operating_days = ?, logo_url = ?, printer_width = ?, printer_connection = ?,
         primary_color = ?, secondary_color = ?, button_color = ?,
@@ -225,7 +239,7 @@ app.put('/api/store', async (req, res) => {
       WHERE id = ?
     `, [
       s.name, s.tagline, s.owner_name, s.phone, s.email, s.address,
-      s.gstin, s.min_order_value, s.delivery_charge, s.free_delivery_above,
+      s.gstin, activeUpi, s.min_order_value, s.delivery_charge, s.free_delivery_above,
       s.estimated_delivery_mins, s.store_status, s.opening_time, s.closing_time,
       s.operating_days, s.logo_url, s.printer_width, s.printer_connection,
       s.primary_color || '#16a34a', s.secondary_color || '#0f766e', s.button_color || '#15803d',
@@ -233,7 +247,15 @@ app.put('/api/store', async (req, res) => {
       now, tenantId
     ]);
 
-    broadcastEvent('store_updated', { ...s, id: tenantId }, tenantId);
+    // Also synchronize payment_settings store_upi_id
+    if (activeUpi) {
+      await execute(`
+        UPDATE payment_settings SET store_upi_id = ?, updated_at = ?
+        WHERE tenant_id = ? OR id = 'default'
+      `, [activeUpi, now, tenantId]).catch(() => {});
+    }
+
+    broadcastEvent('store_updated', { ...s, upi_id: activeUpi, id: tenantId }, tenantId);
     res.json({ success: true, message: 'Store profile & branding updated successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -379,6 +401,19 @@ app.get('/api/products', async (req, res) => {
 
     res.json(enriched);
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Dedicated Barcode Lookup Endpoint (Registered explicitly before /api/products/:id)
+app.get('/api/products/barcode/:barcode', async (req, res) => {
+  try {
+    const tenantId = req.tenant?.id || 'store_royal_001';
+    const barcode = req.params.barcode.trim();
+    const result = await barcodeService.lookup(barcode, tenantId, req.user);
+    res.json(result);
+  } catch (err) {
+    console.error('[Barcode Lookup Route Error]:', err);
     res.status(500).json({ error: err.message });
   }
 });

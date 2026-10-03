@@ -4,6 +4,7 @@ import { generateSampleExcelBuffer, validateImportFile, executeBulkImport } from
 import { whatsappService } from '../services/whatsappService.js';
 import { analyticsService } from '../services/analyticsService.js';
 import { logAuditEvent } from '../tenant/tenantMiddleware.js';
+import { barcodeService, logBarcodeAudit } from '../services/barcodeService.js';
 
 const router = express.Router();
 
@@ -70,53 +71,226 @@ router.post('/products/import/confirm', async (req, res) => {
 });
 
 // ----------------------------------------------------
-// 2. BARCODE PRODUCT LOOKUP & SCAN
+// 2. INTELLIGENT BARCODE SCAN-TO-BILL, AUTO-RECOGNITION & CREATION
 // ----------------------------------------------------
+
+// GET /products/barcode/:barcode — 3-Level Barcode Lookup (Tenant -> Global Master -> External Provider)
 router.get('/products/barcode/:barcode', async (req, res) => {
   try {
     const tenantId = req.tenant?.id || 'store_royal_001';
     const barcode = req.params.barcode.trim();
+    const result = await barcodeService.lookup(barcode, tenantId, req.user);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
-    const product = await getOne(`
-      SELECT p.*, c.name as category_name
-      FROM products p
-      LEFT JOIN categories c ON p.category_id = c.id
-      WHERE (p.tenant_id = ? OR p.store_id = ?)
-        AND (p.barcode = ? OR p.sku = ?)
+// POST /products/from-barcode — Auto product creation from recognized barcode or quick-create
+router.post('/products/from-barcode', async (req, res) => {
+  try {
+    const tenantId = req.tenant?.id || 'store_royal_001';
+    const p = req.body;
+    const cleanBarcode = barcodeService.normalizeBarcode(p.barcode);
+
+    if (!cleanBarcode) {
+      return res.status(400).json({ error: 'Valid barcode is required.' });
+    }
+    if (!p.name || !p.name.trim()) {
+      return res.status(400).json({ error: 'Product name is required.' });
+    }
+
+    // Duplicate check strictly for this tenant
+    const existing = await getOne(`
+      SELECT id, name FROM products 
+      WHERE (tenant_id = ? OR store_id = ?) AND barcode = ?
       LIMIT 1
-    `, [tenantId, tenantId, barcode, barcode]);
+    `, [tenantId, tenantId, cleanBarcode]);
 
-    if (!product) {
-      return res.status(404).json({
-        found: false,
-        barcode,
-        message: `Product with barcode "${barcode}" was not found in your store catalog.`
+    if (existing) {
+      await logBarcodeAudit(tenantId, tenantId, 'BARCODE_DUPLICATE_REJECTED', cleanBarcode, {
+        existing_id: existing.id,
+        existing_name: existing.name
+      }, req.user?.name);
+      return res.status(400).json({
+        error: `This barcode is already assigned to "${existing.name}". Please pick another barcode or update that product.`
       });
     }
 
-    const stock = Number(product.stock) || 0;
-    const minStock = Number(product.min_stock) || 5;
-    const cost = Number(product.purchase_cost) || 0;
-    const price = Number(product.selling_price) || 0;
-    const profit = Math.max(0, price - cost);
-    const margin = price > 0 ? Math.round((profit / price) * 10000) / 100 : 0;
+    // Resolve or map Category
+    let categoryId = p.category_id;
+    if (!categoryId) {
+      const catMatch = await getOne(`
+        SELECT id FROM categories 
+        WHERE (tenant_id = ? OR store_id = ?) 
+          AND (LOWER(name) = LOWER(?) OR LOWER(slug) = LOWER(?))
+        LIMIT 1
+      `, [tenantId, tenantId, p.category_name || 'Grocery', (p.category_name || 'grocery').toLowerCase().replace(/\s+/g, '-')]);
 
-    let stockStatus = 'IN_STOCK';
-    if (stock <= 0) stockStatus = 'OUT_OF_STOCK';
-    else if (stock <= minStock) stockStatus = 'LOW_STOCK';
+      if (catMatch) {
+        categoryId = catMatch.id;
+      } else {
+        const defaultCat = await getOne(`
+          SELECT id FROM categories WHERE (tenant_id = ? OR store_id = ?) LIMIT 1
+        `, [tenantId, tenantId]);
+        categoryId = defaultCat?.id || 'cat_grocery_01';
+      }
+    }
+
+    const id = 'prod_' + Math.random().toString(36).substring(2, 9);
+    const now = new Date().toISOString();
+    const purchaseCost = Number(p.purchase_cost) || 0;
+    const sellingPrice = Number(p.selling_price) || Number(p.mrp) || 0;
+    const mrp = Number(p.mrp) || sellingPrice;
+    const gstPercent = Number(p.gst_percent) || 0;
+    const openingStock = Math.max(0, Number(p.opening_stock) || Number(p.stock) || 0);
+    const minStock = Number(p.min_stock) || 5;
+
+    await execute(`
+      INSERT INTO products (
+        id, store_id, tenant_id, category_id, name, brand, barcode, unit, is_loose,
+        purchase_cost, selling_price, mrp, wholesale_price, min_selling_price,
+        pos_price, website_price, gst_percent, stock, reserved_stock, min_stock,
+        is_active, is_visible_online, is_pos_available, is_featured, is_bestseller,
+        is_offer, photo_url, description, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      id, tenantId, tenantId, categoryId, p.name.trim(), p.brand?.trim() || '', cleanBarcode, p.unit || 'PACKET',
+      p.is_loose ? 1 : 0, purchaseCost, sellingPrice, mrp, Number(p.wholesale_price) || sellingPrice,
+      Number(p.min_selling_price) || purchaseCost, sellingPrice, sellingPrice, gstPercent, openingStock, 0, minStock,
+      1, 1, 1, 0, 0, 0,
+      p.photo_url || 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=600&q=80',
+      p.description || '', now, now
+    ]);
+
+    // Initial price history
+    await execute(`
+      INSERT INTO price_history (id, product_id, old_price, new_price, changed_by, reason, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, ['ph_' + Math.random().toString(36).substring(2, 9), id, sellingPrice, sellingPrice, req.user?.name || 'POS Cashier', 'Initial price on barcode creation', now]);
+
+    // Initial stock movement if opening stock > 0
+    if (openingStock > 0) {
+      await execute(`
+        INSERT INTO stock_movements (id, store_id, tenant_id, product_id, change_qty, balance_qty, type, reference_id, notes, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, ['sm_' + Math.random().toString(36).substring(2, 9), tenantId, tenantId, id, openingStock, openingStock, 'OPENING_STOCK', 'INITIAL', 'Opening stock on product creation via barcode scan', now]);
+    }
+
+    await logBarcodeAudit(tenantId, tenantId, 'PRODUCT_CREATED_FROM_BARCODE', id, {
+      barcode: cleanBarcode,
+      name: p.name,
+      selling_price: sellingPrice,
+      opening_stock: openingStock
+    }, req.user?.name);
+
+    // Retrieve the complete product record with category name
+    const createdProduct = await getOne(`
+      SELECT p.*, c.name as category_name
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.id
+      WHERE p.id = ?
+    `, [id]);
 
     res.json({
-      found: true,
+      success: true,
+      message: `Product "${p.name}" created and added to store catalog`,
       product: {
-        ...product,
-        available_stock: Math.max(0, stock - (product.reserved_stock || 0)),
-        is_in_stock: stock > 0,
-        stock_status: stockStatus,
-        expected_profit: profit,
-        profit_margin: margin,
-        savings_amount: Math.max(0, (product.mrp || price) - price)
+        ...createdProduct,
+        available_stock: openingStock,
+        is_in_stock: openingStock > 0,
+        stock_status: openingStock > 0 ? 'IN_STOCK' : 'OUT_OF_STOCK'
       }
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /products/assign-barcode — Assigns a scanned barcode to an existing store product
+router.post('/products/assign-barcode', async (req, res) => {
+  try {
+    const tenantId = req.tenant?.id || 'store_royal_001';
+    const { product_id, barcode } = req.body;
+    const cleanBarcode = barcodeService.normalizeBarcode(barcode);
+
+    if (!cleanBarcode) {
+      return res.status(400).json({ error: 'Valid barcode is required.' });
+    }
+    if (!product_id) {
+      return res.status(400).json({ error: 'product_id is required.' });
+    }
+
+    // Check if barcode already belongs to another product in this tenant
+    const existing = await getOne(`
+      SELECT id, name FROM products 
+      WHERE (tenant_id = ? OR store_id = ?) AND barcode = ? AND id != ?
+      LIMIT 1
+    `, [tenantId, tenantId, cleanBarcode, product_id]);
+
+    if (existing) {
+      return res.status(400).json({
+        error: `This barcode is already assigned to "${existing.name}". Please pick another product or clear its barcode first.`
+      });
+    }
+
+    const now = new Date().toISOString();
+    await execute(`
+      UPDATE products 
+      SET barcode = ?, updated_at = ?
+      WHERE id = ? AND (tenant_id = ? OR store_id = ?)
+    `, [cleanBarcode, now, product_id, tenantId, tenantId]);
+
+    await logBarcodeAudit(tenantId, tenantId, 'BARCODE_ASSIGNED', product_id, {
+      barcode: cleanBarcode,
+      product_id
+    }, req.user?.name);
+
+    const updated = await getOne(`
+      SELECT p.*, c.name as category_name
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.id
+      WHERE p.id = ?
+    `, [product_id]);
+
+    res.json({
+      success: true,
+      message: `Barcode ${cleanBarcode} assigned to "${updated.name}" successfully`,
+      product: {
+        ...updated,
+        available_stock: Math.max(0, (Number(updated.stock) || 0) - (updated.reserved_stock || 0)),
+        is_in_stock: (Number(updated.stock) || 0) > 0,
+        stock_status: (Number(updated.stock) || 0) <= 0 ? 'OUT_OF_STOCK' : 'IN_STOCK'
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /products/search-for-barcode — Search unbarcoded or all store products to assign scanned barcode
+router.get('/products/search-for-barcode', async (req, res) => {
+  try {
+    const tenantId = req.tenant?.id || 'store_royal_001';
+    const q = (req.query.q || '').trim();
+
+    let sql = `
+      SELECT p.id, p.name, p.brand, p.barcode, p.sku, p.unit, p.selling_price, p.mrp, p.stock, p.photo_url, c.name as category_name
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.id
+      WHERE (p.tenant_id = ? OR p.store_id = ?)
+    `;
+    const params = [tenantId, tenantId];
+
+    if (q) {
+      sql += ` AND (p.name LIKE ? OR p.brand LIKE ? OR p.sku LIKE ? OR p.barcode LIKE ?)`;
+      const term = `%${q}%`;
+      params.push(term, term, term, term);
+    }
+
+    sql += ` ORDER BY p.name ASC LIMIT 25`;
+    const rows = await query(sql, params);
+    res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -598,7 +772,7 @@ router.get('/invoices/:id/pdf', async (req, res) => {
         ` : `
           <div style="font-size: 0.75rem; font-weight: 700; margin-bottom: 4px; color: #0f172a;">SCAN TO PAY VIA UPI</div>
           <img src="https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(upiPayUrl)}" alt="UPI QR" style="border: 1px solid #cbd5e1; border-radius: 4px;" />
-          <div style="font-size: 0.65rem; color: #64748b; margin-top: 4px;">UPI ID: ${tenant?.upi_id || ''}</div>
+          <div style="font-size: 0.65rem; color: #64748b; margin-top: 4px;">UPI ID: ${tenant?.upi_id || 'apnakirana@okhdfcbank'}</div>
         `}
       </div>
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Product, Category, Customer, StoreProfile } from '../../types';
 import { api } from '../../services/api';
-import { barcodeScanner, weighingScale, ThermalPrinterAdapter, ReceiptData } from '../../services/hardware';
+import { barcodeScanner, weighingScale, ThermalPrinterAdapter, ReceiptData, normalizeBarcode } from '../../services/hardware';
 import { offlineSync } from '../../services/offlineSync';
 import {
   Search,
@@ -25,9 +25,13 @@ import {
   Camera,
   MessageSquare,
   Send,
-  AlertCircle
+  AlertCircle,
+  Sparkles,
+  Link2
 } from 'lucide-react';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
+import { NewProductDetectedModal } from './NewProductDetectedModal';
+import { UnknownBarcodeModal } from './UnknownBarcodeModal';
 
 interface POSTerminalProps {
   products: Product[];
@@ -98,11 +102,29 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
   const [offlineQueueCount, setOfflineQueueCount] = useState<number>(offlineSync.getQueuedOrders().length);
 
-  // Connect Barcode Scanner Listener
+  // Barcode Scanner Listener & Connectivity
+  const [scannerReady, setScannerReady] = useState<boolean>(true);
+  const [isBarcodeLoading, setIsBarcodeLoading] = useState<boolean>(false);
+  const [detectedGlobalProduct, setDetectedGlobalProduct] = useState<{ barcode: string; data?: any } | null>(null);
+  const [unknownBarcodePrompt, setUnknownBarcodePrompt] = useState<{ barcode: string } | null>(null);
+  const [networkError, setNetworkError] = useState<string | null>(null);
+  const [stockWarning, setStockWarning] = useState<string | null>(null);
+
   useEffect(() => {
-    barcodeScanner.connect((scannedCode) => {
-      handleBarcodeScanned(scannedCode);
-    });
+    if (barcodeScanner && typeof barcodeScanner.onStatusChange === 'function') {
+      barcodeScanner.onStatusChange((ready) => {
+        setScannerReady(ready);
+      });
+    }
+
+    barcodeScanner?.connect(
+      (scannedCode) => {
+        handleBarcodeScanned(scannedCode);
+      },
+      (ready) => {
+        setScannerReady(ready);
+      }
+    );
 
     const handleOnline = () => {
       setIsOnline(true);
@@ -125,36 +147,99 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
 
   // Dedicated Barcode Input State
   const [barcodeInput, setBarcodeInput] = useState('');
-  const [barcodeNotFound, setBarcodeNotFound] = useState<{ barcode: string } | null>(null);
   const [lastScannedFeedback, setLastScannedFeedback] = useState<string | null>(null);
 
-  const handleBarcodeScanned = async (barcode: string) => {
-    const cleanCode = barcode.trim();
-    if (!cleanCode) return;
-    let found = products.find(p => p.barcode === cleanCode || (p.sku && p.sku === cleanCode));
-    if (!found) {
-      try {
-        const res = await api.getProductByBarcode(cleanCode);
-        if (res && res.id) {
-          found = res;
-        }
-      } catch (err) {
-        // Not in backend either
-      }
+  const processFoundProduct = (prod: Product, weightedQty?: number) => {
+    // Check if inactive
+    if (!prod.is_active) {
+      setStockWarning(`Product "${prod.name}" is currently inactive/disabled.`);
+      return;
     }
 
-    if (found) {
-      setBarcodeNotFound(null);
-      setLastScannedFeedback(`✓ Added ${found.name}`);
-      setTimeout(() => setLastScannedFeedback(null), 2500);
-      if (found.is_loose || found.unit === 'KG') {
-        openScaleModal(found);
-      } else {
-        addToCart(found, 1);
-      }
-    } else {
-      setBarcodeNotFound({ barcode: cleanCode });
+    // Check stock status (Level 1: Out of stock vs Not Found distinction)
+    if (prod.stock <= 0 && !prod.is_loose && prod.unit !== 'KG') {
+      setStockWarning(`Notice: "${prod.name}" is currently OUT OF STOCK (Stock: 0). Added to cart.`);
     }
+
+    setLastScannedFeedback(`✓ Added ${prod.name}`);
+    setTimeout(() => setLastScannedFeedback(null), 2500);
+
+    if (weightedQty && weightedQty > 0) {
+      // Barcode with embedded weight (e.g. 2.350 KG)
+      addToCart(prod, weightedQty);
+    } else if (prod.is_loose || prod.unit === 'KG') {
+      openScaleModal(prod);
+    } else {
+      addToCart(prod, 1);
+    }
+  };
+
+  const handleBarcodeScanned = async (barcode: string) => {
+    const cleanCode = normalizeBarcode(barcode);
+    if (!cleanCode) return;
+
+    setIsBarcodeLoading(true);
+    setNetworkError(null);
+    setStockWarning(null);
+
+    // Check local loaded store products first for instant zero-latency addition
+    const localMatch = products.find(p => p.barcode === cleanCode || (p.sku && p.sku === cleanCode));
+    if (localMatch) {
+      processFoundProduct(localMatch);
+      setIsBarcodeLoading(false);
+      return;
+    }
+
+    // Level 1-3 Backend Pipeline: Store Catalog -> Global FMCG Catalog -> External Provider
+    try {
+      const res = await api.lookupBarcode(cleanCode);
+
+      if (res && res.found) {
+        if (res.source === 'tenant_catalog' && res.product) {
+          processFoundProduct(res.product, res.is_weighted_barcode ? res.parsed_weight : undefined);
+        } else if (res.source === 'global_catalog' || res.source === 'external_provider') {
+          // Product recognized in Global/External database!
+          setDetectedGlobalProduct({
+            barcode: cleanCode,
+            data: res.global_product
+          });
+        }
+      } else {
+        // Completely unknown barcode -> trigger quick create or search & assign
+        setUnknownBarcodePrompt({ barcode: cleanCode });
+      }
+    } catch (err: any) {
+      console.error('Barcode lookup error:', err);
+      const isNetworkOutage = !navigator.onLine || 
+                              err?.message?.includes('Failed to fetch') || 
+                              err?.name === 'TypeError' ||
+                              err?.message?.includes('NetworkError');
+
+      if (isNetworkOutage) {
+        setNetworkError('Unable to connect to Digi8 Kirana server. Check your network, Wi-Fi, or local connection.');
+      } else {
+        setUnknownBarcodePrompt({ barcode: cleanCode });
+      }
+    } finally {
+      setIsBarcodeLoading(false);
+    }
+  };
+
+  const handleAutoProductCreated = (newProduct: Product) => {
+    onRefreshData();
+    processFoundProduct(newProduct);
+    setDetectedGlobalProduct(null);
+    setUnknownBarcodePrompt(null);
+    setLastScannedFeedback(`✓ Created & Added ${newProduct.name}`);
+    setTimeout(() => setLastScannedFeedback(null), 3000);
+  };
+
+  const handleBarcodeAssigned = (product: Product) => {
+    onRefreshData();
+    processFoundProduct(product);
+    setUnknownBarcodePrompt(null);
+    setLastScannedFeedback(`✓ Barcode Linked & Added ${product.name}`);
+    setTimeout(() => setLastScannedFeedback(null), 3000);
   };
 
   const handleCustomerPhoneChange = async (val: string) => {
@@ -457,11 +542,11 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
 
       // Prepare Receipt Data
       const receipt: ReceiptData = {
-        store_name: store.name,
-        store_tagline: store.tagline,
-        address: store.address,
-        phone: store.phone,
-        gstin: store.gstin,
+        store_name: store?.name || 'Digi8 Kirana Store',
+        store_tagline: store?.tagline || '',
+        address: store?.address || '',
+        phone: store?.phone || '',
+        gstin: store?.gstin || '',
         invoice_no: billResult.invoice_number,
         order_no: billResult.order_number,
         date_time: new Date().toLocaleString('en-IN'),
@@ -480,8 +565,8 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
         discount: totalSavings,
         total: grandTotal,
         payment_method: paymentMethod,
-        upi_id: store.upi_id,
-        footer_text: 'Thank you for shopping at ' + store.name,
+        upi_id: store?.upi_id || 'apnakirana@okhdfcbank',
+        footer_text: 'Thank you for shopping at ' + (store?.name || 'our store'),
       };
 
       // Phase 6: WhatsApp dispatch if customer mobile is present
@@ -515,11 +600,14 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
     }
   };
 
-  // Filter products for touch grid
-  const filteredProducts = products.filter(p => {
-    const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
-                          p.barcode.includes(search) ||
-                          p.brand.toLowerCase().includes(search.toLowerCase());
+  // Filter products for touch grid with robust null/undefined safety
+  const filteredProducts = (products || []).filter(p => {
+    if (!p) return false;
+    const s = (search || '').toLowerCase();
+    const nameMatch = Boolean(p.name && p.name.toLowerCase().includes(s));
+    const barcodeMatch = Boolean(p.barcode && String(p.barcode).toLowerCase().includes(s));
+    const brandMatch = Boolean(p.brand && String(p.brand).toLowerCase().includes(s));
+    const matchesSearch = !s || nameMatch || barcodeMatch || brandMatch;
     const matchesCat = selectedCategory === '' || p.category_id === selectedCategory;
     return matchesSearch && matchesCat && Boolean(p.is_pos_available) && Boolean(p.is_active);
   });
@@ -528,10 +616,10 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
     <div className="pos-layout">
       {/* LEFT: Catalog Grid & Search */}
       <div className="pos-catalog-panel">
-        {/* Barcode / Scan Alerts */}
-        {barcodeNotFound && (
+        {/* Scan Alerts: Distinguish Network Error vs Inactive/Stock */}
+        {networkError && (
           <div style={{
-            background: '#fee2e2',
+            background: '#fef2f2',
             border: '1px solid #fecaca',
             borderRadius: 'var(--radius-md)',
             padding: '10px 14px',
@@ -543,18 +631,43 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
             color: '#991b1b'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <AlertCircle size={18} />
-              <span>Product not found for barcode: <strong>{barcodeNotFound.barcode}</strong></span>
+              <WifiOff size={18} />
+              <span>{networkError}</span>
             </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => setBarcodeNotFound(null)}
-              >
-                Dismiss
-              </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setNetworkError(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {stockWarning && (
+          <div style={{
+            background: '#fffbeb',
+            border: '1px solid #fde68a',
+            borderRadius: 'var(--radius-md)',
+            padding: '10px 14px',
+            marginBottom: '10px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            fontSize: '0.85rem',
+            color: '#92400e'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <AlertCircle size={18} color="#d97706" />
+              <span>{stockWarning}</span>
             </div>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setStockWarning(null)}
+            >
+              Dismiss
+            </button>
           </div>
         )}
 
@@ -598,10 +711,11 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
               display: 'flex',
               alignItems: 'center',
               background: 'white',
-              border: '2px solid var(--primary-500)',
+              border: isBarcodeLoading ? '2px solid #3b82f6' : '2px solid var(--primary-500)',
               borderRadius: 'var(--radius-md)',
               padding: '2px 8px',
-              flex: '1 1 260px'
+              flex: '1 1 260px',
+              transition: 'border 0.2s ease'
             }}
           >
             <Barcode size={18} color="var(--primary-700)" style={{ marginRight: '6px' }} />
@@ -610,14 +724,23 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
               placeholder="Scan Barcode / Enter Code..."
               value={barcodeInput}
               onChange={(e) => setBarcodeInput(e.target.value)}
+              disabled={isBarcodeLoading}
               style={{ border: 'none', width: '100%', fontSize: '0.85rem', outline: 'none' }}
             />
             <button
               type="submit"
               className="btn btn-primary btn-sm"
-              style={{ padding: '4px 10px', fontSize: '0.75rem', height: '28px' }}
+              disabled={isBarcodeLoading}
+              style={{ padding: '4px 10px', fontSize: '0.75rem', height: '28px', display: 'flex', alignItems: 'center', gap: '4px' }}
             >
-              Scan
+              {isBarcodeLoading ? (
+                <>
+                  <RefreshCw size={12} className="spin" />
+                  <span>Looking up...</span>
+                </>
+              ) : (
+                <span>Scan</span>
+              )}
             </button>
           </form>
 
@@ -645,16 +768,25 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
           <div style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
+            gap: '8px',
             fontSize: '0.75rem',
             fontWeight: 700,
-            background: 'var(--primary-100)',
-            color: 'var(--primary-800)',
+            background: scannerReady ? '#ecfdf5' : '#fef2f2',
+            color: scannerReady ? '#065f46' : '#991b1b',
+            border: `1px solid ${scannerReady ? '#a7f3d0' : '#fecaca'}`,
             padding: '6px 12px',
             borderRadius: 'var(--radius-full)'
           }}>
+            <span style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              background: scannerReady ? '#10b981' : '#ef4444',
+              display: 'inline-block',
+              boxShadow: scannerReady ? '0 0 6px #10b981' : 'none'
+            }} />
             <Barcode size={16} />
-            <span>Scanner Ready</span>
+            <span>{scannerReady ? 'Scanner Ready' : 'Scanner Inactive'}</span>
           </div>
 
           {/* Offline Sync Status */}
@@ -1376,6 +1508,33 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
         onScanSuccess={(code) => handleBarcodeScanned(code)}
         title="Mobile Barcode Scanner"
       />
+
+      {/* INTELLIGENT AUTO-RECOGNITION: NEW PRODUCT DETECTED MODAL */}
+      {detectedGlobalProduct && (
+        <NewProductDetectedModal
+          isOpen={Boolean(detectedGlobalProduct)}
+          barcode={detectedGlobalProduct.barcode}
+          globalProduct={detectedGlobalProduct.data}
+          categories={categories}
+          onClose={() => setDetectedGlobalProduct(null)}
+          onProductCreated={handleAutoProductCreated}
+        />
+      )}
+
+      {/* UNKNOWN BARCODE WORKFLOW MODAL: QUICK CREATE OR SEARCH & ASSIGN */}
+      {unknownBarcodePrompt && (
+        <UnknownBarcodeModal
+          isOpen={Boolean(unknownBarcodePrompt)}
+          barcode={unknownBarcodePrompt.barcode}
+          categories={categories}
+          onClose={() => setUnknownBarcodePrompt(null)}
+          onProductCreatedOrAssigned={handleAutoProductCreated}
+          onScanAgain={() => {
+            setUnknownBarcodePrompt(null);
+            setIsCameraScannerOpen(true);
+          }}
+        />
+      )}
     </div>
   );
 };

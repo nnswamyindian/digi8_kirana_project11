@@ -642,7 +642,7 @@ export const App: React.FC = () => {
                   discount: order.discount,
                   total: order.total_amount,
                   payment_method: order.payment_method,
-                  upi_id: store.upi_id,
+                  upi_id: store?.upi_id || 'apnakirana@okhdfcbank',
                 };
                 setActiveReceiptData(receipt);
               }}

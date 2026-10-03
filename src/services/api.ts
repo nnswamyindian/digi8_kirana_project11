@@ -1360,11 +1360,103 @@ export const api = {
     return result;
   },
 
+  async lookupBarcode(barcode: string): Promise<{
+    found: boolean;
+    source: 'tenant_catalog' | 'global_catalog' | 'external_provider' | 'none';
+    is_weighted_barcode?: boolean;
+    parsed_weight?: number;
+    calculated_amount?: number;
+    product?: Product;
+    global_product?: any;
+    barcode?: string;
+    message?: string;
+    error?: string;
+  }> {
+    try {
+      const res = await apiFetch(`${BASE_URL}/products/barcode/${encodeURIComponent(barcode)}`);
+      
+      // If 404, check if it's structured or fallback to not-found
+      if (res.status === 404) {
+        try {
+          const body = await res.json();
+          if (body && body.source) return body;
+        } catch {}
+        return {
+          found: false,
+          source: 'none',
+          barcode,
+          message: 'Product not found in store or global catalogs'
+        };
+      }
+
+      const result = await res.json();
+      if (!res.ok && !result.source) {
+        return {
+          found: false,
+          source: 'none',
+          barcode,
+          message: result.error || result.message || 'Product not found'
+        };
+      }
+      return result;
+    } catch (err: any) {
+      // Re-throw genuine network errors (offline, failed fetch) so POS can show connection warning
+      throw err;
+    }
+  },
+
   async getProductByBarcode(barcode: string): Promise<Product> {
-    const res = await apiFetch(`${BASE_URL}/products/barcode/${encodeURIComponent(barcode)}`);
+    const res = await this.lookupBarcode(barcode);
+    if (res.found && res.product) {
+      return res.product;
+    }
+    throw new Error(res.message || 'Product not found for this barcode');
+  },
+
+  async createProductFromBarcode(data: {
+    barcode: string;
+    name: string;
+    brand?: string;
+    category_id?: string;
+    category_name?: string;
+    unit?: string;
+    is_loose?: boolean | number;
+    purchase_cost?: number;
+    mrp?: number;
+    selling_price: number;
+    wholesale_price?: number;
+    min_selling_price?: number;
+    gst_percent?: number;
+    opening_stock?: number;
+    min_stock?: number;
+    photo_url?: string;
+    description?: string;
+  }): Promise<{ success: boolean; message: string; product: Product }> {
+    const res = await apiFetch(`${BASE_URL}/products/from-barcode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
     const result = await res.json();
-    if (!res.ok) throw new Error(result.error || 'Product not found for this barcode');
+    if (!res.ok) throw new Error(result.error || 'Failed to create product from barcode');
     return result;
+  },
+
+  async assignBarcodeToProduct(productId: string, barcode: string): Promise<{ success: boolean; message: string; product: Product }> {
+    const res = await apiFetch(`${BASE_URL}/products/assign-barcode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ product_id: productId, barcode })
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Failed to assign barcode to product');
+    return result;
+  },
+
+  async searchProductsForBarcode(query: string): Promise<Product[]> {
+    const res = await apiFetch(`${BASE_URL}/products/search-for-barcode?q=${encodeURIComponent(query)}`);
+    if (!res.ok) throw new Error('Failed to search store products');
+    return res.json();
   },
 
   async receiveStock(data: {

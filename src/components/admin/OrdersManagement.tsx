@@ -211,7 +211,7 @@ export const OrdersManagement: React.FC<OrdersManagementProps> = ({
       gst_amount: order.gst_amount,
       total: order.total_amount,
       payment_method: order.payment_method,
-      upi_id: store.upi_id,
+      upi_id: store?.upi_id || 'apnakirana@okhdfcbank',
       footer_text: order.delivery_address ? `Delivery Address:\n${order.delivery_address}` : '',
     };
 

@@ -143,7 +143,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   // Generate Dynamic UPI QR Code
   useEffect(() => {
     if (paymentMethod === 'UPI' && qrCanvasRef.current && !orderResult) {
-      const upiUrl = `upi://pay?pa=${encodeURIComponent(store.upi_id)}&pn=${encodeURIComponent(store.name)}&am=${grandTotal.toFixed(2)}&cu=INR&tn=${encodeURIComponent('Grocery Order')}`;
+      const activeUpiId = store?.upi_id || 'apnakirana@okhdfcbank';
+      const activeStoreName = store?.name || 'Apna Kirana';
+      const upiUrl = `upi://pay?pa=${encodeURIComponent(activeUpiId)}&pn=${encodeURIComponent(activeStoreName)}&am=${grandTotal.toFixed(2)}&cu=INR&tn=${encodeURIComponent('Grocery Order')}`;
       QRCode.toCanvas(qrCanvasRef.current, upiUrl, {
         width: 170,
         margin: 1,
@@ -740,7 +742,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                       Works with GPay, PhonePe, Paytm, BHIM, and all UPI banking apps.
                     </p>
                     <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary-700)' }}>
-                      UPI ID: {store.upi_id}
+                      UPI ID: {store?.upi_id || 'apnakirana@okhdfcbank'}
                     </span>
                   </div>
                 </div>
