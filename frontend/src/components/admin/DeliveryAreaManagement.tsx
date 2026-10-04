@@ -29,9 +29,7 @@ export const DeliveryAreaManagement: React.FC<DeliveryAreaManagementProps> = ({ 
 
   const canManage = currentUser ? (
     currentUser.role === 'OWNER' ||
-    currentUser.role === 'STORE_OWNER' ||
-    currentUser.role === 'STORE_MANAGER' ||
-    currentUser.role === 'ADMIN' ||
+    currentUser.role === 'SUB_ADMIN' ||
     currentUser.role === 'PLATFORM_ADMIN' ||
     Boolean(currentUser.permissions?.includes('manage_delivery_areas'))
   ) : true;

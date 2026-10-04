@@ -46,12 +46,11 @@ export const StaffManagement: React.FC<StaffManagementProps> = ({ currentUser })
   const [error, setError] = useState('');
 
   const isOwner = currentUser ? (
-    currentUser.role === 'OWNER' ||
-    currentUser.role === 'STORE_OWNER' ||
-    currentUser.role === 'STORE_MANAGER' ||
-    currentUser.role === 'PLATFORM_ADMIN' ||
-    Boolean(currentUser.permissions?.includes('manage_users'))
-  ) : true;
+  currentUser.role === 'OWNER' ||
+  currentUser.role === 'SUB_ADMIN' ||
+  currentUser.role === 'PLATFORM_ADMIN' ||
+  Boolean(currentUser.permissions?.includes('manage_users'))
+) : true;
 
   const loadUsers = async () => {
     setLoading(true);
