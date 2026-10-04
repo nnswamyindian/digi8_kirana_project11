@@ -6,7 +6,7 @@ module.exports = {
   apps: [
     {
       name: 'kirana-saas-backend',
-      script: './server/index.js',
+      script: './backend/index.js',
       cwd: '/var/www/grocery-platform',
       instances: 'max',
       exec_mode: 'cluster',

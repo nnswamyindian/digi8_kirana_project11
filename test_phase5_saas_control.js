@@ -16,10 +16,10 @@
  */
 
 import express from 'express';
-import db, { initDatabase, query, getOne, execute } from './server/db.js';
-import { runMigrations } from './server/migrations/migrationManager.js';
-import platformRoutes from './server/platform/platformRoutes.js';
-import { resolveTenant } from './server/tenant/tenantMiddleware.js';
+import db, { initDatabase, query, getOne, execute } from './backend/db.js';
+import { runMigrations } from './backend/migrations/migrationManager.js';
+import platformRoutes from './backend/platform/platformRoutes.js';
+import { resolveTenant } from './backend/tenant/tenantMiddleware.js';
 
 async function runPhase5TestSuite() {
   console.log('================================================================');

@@ -35,8 +35,8 @@ services:
       MYSQL_PASSWORD: ${DB_PASSWORD:-KiranaSecurePass_2026!}
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+      - ./backend/database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./backend/database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
     ports:
       - "3306:3306"
     healthcheck:

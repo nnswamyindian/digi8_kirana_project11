@@ -1,0 +1,20 @@
+{
+  "name": "kirana-backend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file=.env index.js",
+    "server": "node --env-file=.env --watch index.js",
+    "dev": "node --env-file=.env --watch index.js",
+    "db:init": "node --env-file=.env database/initDb.js",
+    "test:logins": "node --env-file=.env test_all_logins.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "mysql2": "^3.24.4",
+    "qrcode": "^1.5.4",
+    "xlsx": "^0.18.5"
+  }
+}

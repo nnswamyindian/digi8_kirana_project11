@@ -1,41 +1,29 @@
 {
   "name": "kiranastoresystem",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
   "scripts": {
-    "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "server": "node --env-file=.env server/index.js",
-    "client": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
-    "test": "node scripts/run-ci-tests.js",
-    "test:unit": "node scripts/run-unit-tests.js",
-    "test:integration": "node scripts/run-integration-tests.js",
-    "test:all": "npm run test"
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "server": "npm run dev:backend",
+    "client": "npm run dev:frontend",
+    "backend": "npm run dev:backend",
+    "frontend": "npm run dev:frontend",
+    "dev:frontend": "npm run dev --workspace=kirana-frontend",
+    "dev:backend": "npm run dev --workspace=kirana-backend",
+    "build": "npm run build --workspace=kirana-frontend",
+    "build:frontend": "npm run build --workspace=kirana-frontend",
+    "start": "npm run start --workspace=kirana-backend",
+    "start:backend": "npm run start --workspace=kirana-backend",
+    "db:init": "npm run db:init --workspace=kirana-backend",
+    "test:backend": "npm run test:logins --workspace=kirana-backend",
+    "typecheck": "npm run typecheck --workspace=kirana-frontend"
   },
   "devDependencies": {
-    "concurrently": "^10.0.5",
-    "typescript": "~6.0.2",
-    "vite": "^8.3.0"
-  },
-  "dependencies": {
-    "@types/canvas-confetti": "^1.9.0",
-    "@types/qrcode": "^1.5.6",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^6.1.1",
-    "canvas-confetti": "^1.9.4",
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
-    "html5-qrcode": "^2.3.8",
-    "lucide-react": "^1.48.0",
-    "mysql2": "^3.24.4",
-    "qrcode": "^1.5.4",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
-    "sqlite3": "^6.0.1",
-    "xlsx": "^0.18.5"
+    "concurrently": "^10.0.5"
   }
 }

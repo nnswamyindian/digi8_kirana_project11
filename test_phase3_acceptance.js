@@ -1,7 +1,7 @@
-import { paymentService } from './server/payment/paymentService.js';
-import { deliveryService } from './server/delivery/deliveryService.js';
-import { notificationService } from './server/notifications/notificationService.js';
-import { query, getOne, execute, initDatabase } from './server/db.js';
+import { paymentService } from './backend/payment/paymentService.js';
+import { deliveryService } from './backend/delivery/deliveryService.js';
+import { notificationService } from './backend/notifications/notificationService.js';
+import { query, getOne, execute, initDatabase } from './backend/db.js';
 
 async function runEndToEndPhase3AcceptanceTest() {
   console.log('=== STARTING PHASE 3 END-TO-END ACCEPTANCE TEST ===');

@@ -5,9 +5,9 @@
  * 3. Token-based Session Verification (/api/auth/me)
  */
 
-import { tokenService } from './server/auth/tokenService.js';
-import { runMigrations } from './server/migrations/migrationManager.js';
-import { initDatabase, query, getOne } from './server/db.js';
+import { tokenService } from './backend/auth/tokenService.js';
+import { runMigrations } from './backend/migrations/migrationManager.js';
+import { initDatabase, query, getOne } from './backend/db.js';
 
 async function runRecommendationValidation() {
   console.log('🧪 Starting Verification Suite for Production Recommendations...\n');

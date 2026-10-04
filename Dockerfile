@@ -3,34 +3,34 @@
 # ==============================================================================
 
 # Stage 1: Build the React + Vite Frontend
-FROM node:22-alpine AS builder
+FROM node:22-alpine AS frontend-builder
 
-WORKDIR /app
+WORKDIR /app/frontend
 
-COPY package*.json ./
+COPY frontend/package*.json ./
 RUN npm ci
 
-COPY . .
+COPY frontend/ ./
 RUN npm run build
 
-# Stage 2: Minimal Production Runtime
+# Stage 2: Production Backend Runtime
 FROM node:22-alpine AS runner
 
 WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=5000
+ENV DB_CLIENT=mysql
 
-# Install production dependencies only
-COPY package*.json ./
+# Install production backend dependencies
+COPY backend/package*.json ./backend/
+WORKDIR /app/backend
 RUN npm ci --omit=dev --prefer-offline
 
-# Copy built frontend assets and backend application
-COPY --from=builder /app/dist ./dist
-COPY server ./server
-COPY database ./database
-COPY public ./public
-COPY shared ./shared
+# Copy backend source code and built frontend distribution
+WORKDIR /app
+COPY backend/ ./backend/
+COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
 # Health check probe
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
@@ -38,4 +38,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 EXPOSE 5000
 
-CMD ["node", "server/index.js"]
+WORKDIR /app/backend
+CMD ["node", "index.js"]

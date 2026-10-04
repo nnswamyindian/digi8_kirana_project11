@@ -4,7 +4,7 @@
 [![Node Version](https://img.shields.io/badge/node-22%20LTS-brightgreen.svg)](https://nodejs.org/)
 [![React Version](https://img.shields.io/badge/react-19.3-blue.svg)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/typescript-6.0-blue.svg)](https://www.typescriptlang.org/)
-[![Dual Database](https://img.shields.io/badge/database-SQLite3%20%7C%20MySQL%208.0-orange.svg)](file:///c:/Users/nnswa/OneDrive/Desktop/ROYAL_PROJECTS/kiranastoresystem/server/db.js)
+[![Database](https://img.shields.io/badge/database-MySQL%208.0+-blue.svg)](file:///c:/Users/nnswa/OneDrive/Desktop/ROYAL_PROJECTS/kiranastoresystem/backend/db.js)
 
 Production-Ready **Multi-Tenant Kirana, Grocery, POS Billing Counter, eCommerce Storefront, and Real-Time Delivery SaaS Platform** engineered for Indian retail operations, multi-store supermarket chains, and hyper-local delivery.
 
@@ -13,12 +13,13 @@ Production-Ready **Multi-Tenant Kirana, Grocery, POS Billing Counter, eCommerce 
 ## 📑 Table of Contents
 1. [Architecture Overview](#-architecture-overview)
 2. [Technology Stack](#-technology-stack)
-3. [Login Credentials & Roles](#-login-credentials--roles)
-4. [Key Features & Capabilities](#-key-features--capabilities)
-5. [Quick Start & Setup](#-quick-start--setup)
-6. [Testing & Quality Assurance](#-testing--quality-assurance)
-7. [Docker & Containerized Deployment](#-docker--containerized-deployment)
-8. [Production Deployment](#-production-deployment)
+3. [Folder Structure](#-folder-structure)
+4. [Login Credentials & Roles](#-login-credentials--roles)
+5. [Key Features & Capabilities](#-key-features--capabilities)
+6. [Quick Start & Setup](#-quick-start--setup)
+7. [Testing & Quality Assurance](#-testing--quality-assurance)
+8. [Docker & Containerized Deployment](#-docker--containerized-deployment)
+9. [Production Deployment](#-production-deployment)
 
 ---
 
@@ -46,7 +47,7 @@ The system uses a **Shared Database + Multi-Tenant Scoping** model with dynamic 
                                                │
 ┌──────────────────────────────────────────────▼──────────────────────────────────────────────┐
 │                                      DATA LAYER                                             │
-│  [db.js Unified Query Engine] ───► SQLite 3 (Local Dev)  OR  MySQL 8+ (Hostinger VPS Pool)  │
+│  [backend/db.js MySQL Engine] ───► Enterprise MySQL 8+ Connection Pool                      │
 └─────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -57,12 +58,52 @@ The system uses a **Shared Database + Multi-Tenant Scoping** model with dynamic 
 - **Frontend:** React 19, TypeScript, Vite, Vanilla CSS with custom properties & glassmorphism tokens, Lucide Icons, Canvas Confetti.
 - **Backend:** Node.js (v22 LTS), Express 5, Server-Sent Events (SSE) for real-time broadcasts.
 - **Authentication:** Native RFC 7519 HMAC-SHA256 JWT, Bearer Token middleware, multi-tenant role guards.
-- **Databases:** Dual-engine architecture:
-  - **Local Development & CI:** SQLite 3 (`kirana_central.db`) with WAL mode.
-  - **Production:** MySQL 8.0+ Connection Pool with transactional row locks.
-- **Migrations:** Automated, version-tracked idempotent schema migration manager (`migrationManager.js`).
+- **Database:** Enterprise MySQL 8.0+ Connection Pool with utf8mb4 encoding, foreign keys, and transactional row locks.
+- **Migrations:** Automated, version-tracked idempotent schema migration manager (`backend/migrations/migrationManager.js`).
 - **Hardware Integration:** ESC/POS 58mm/80mm Thermal Receipt printing, USB/Bluetooth Barcode Scanners, Web Audio order chimes.
 - **DevOps & Containers:** Multi-stage `Dockerfile`, `docker-compose.yml`, PM2 ecosystem cluster, Nginx reverse proxy configuration.
+
+---
+
+## 📁 Folder Structure
+
+```
+kiranastoresystem/
+├── frontend/                     # React 19 + TypeScript + Vite Frontend Package
+│   ├── package.json              # Frontend-only dependencies & scripts
+│   ├── index.html                # Single Page Application entry point
+│   ├── vite.config.ts            # Vite bundler & API reverse proxy configuration
+│   ├── tsconfig.json             # TypeScript compiler settings
+│   ├── public/                   # Static assets, manifests, icons
+│   ├── shared/                   # Shared type definitions and constants
+│   └── src/                      # Components, Storefront, POS, Admin, Styles
+│
+├── backend/                      # Node.js + Express 5 Enterprise MySQL Package
+│   ├── package.json              # Backend-only dependencies (Express, MySQL2, CORS)
+│   ├── .env                      # MySQL credentials & environment configuration
+│   ├── .env.example              # Template environment configuration
+│   ├── index.js                  # Main API server, middleware & route loader
+│   ├── db.js                     # Pure MySQL connection pool & query helpers
+│   ├── seedData.js               # Initial grocery catalog & store sample data
+│   ├── auth/                     # JWT token service & RBAC middleware
+│   ├── database/                 # Enterprise MySQL DDL & Seed scripts
+│   │   ├── schema.sql            # Complete MySQL 8+ table definitions
+│   │   ├── seed.sql              # Multi-tenant baseline seed data
+│   │   └── initDb.js             # Automated database setup & migration runner
+│   ├── delivery/                 # Hyper-local delivery fleet service
+│   ├── migrations/               # Version-tracked schema migrations
+│   ├── notifications/            # Real-time SSE notification bus
+│   ├── payment/                  # Razorpay & BharatQR UPI adapters
+│   ├── platform/                 # Multi-tenant SaaS control center routes
+│   ├── routes/                   # Inventory, customers, invoicing, WhatsApp routes
+│   ├── services/                 # Excel bulk import, analytics, barcode scanner
+│   └── tenant/                   # Tenant resolver middleware & audit logger
+│
+├── shared/                       # Shared platform interfaces & validation
+├── mobile/                       # Expo / React Native mobile applications
+├── docker-compose.yml            # Docker stack with MySQL 8 container
+├── Dockerfile                    # Multi-stage production container build
+└── package.json                  # Workspace orchestrator package
 
 ---
 
@@ -126,20 +167,30 @@ All demo accounts come with instant pre-fill buttons on the Staff & Store login 
 ### Prerequisites
 - Node.js 20+ or 22+ LTS
 - npm 10+
+- MySQL 8.0+ Server (Local or Docker)
 
 ### 1. Clone & Install
+Install all workspace packages (`frontend`, `backend`) in one command:
 ```bash
 git clone https://github.com/nnswamyindian/digi8_kirana_project11.git
 cd digi8_kirana_project11
 npm install
 ```
 
-### 2. Environment Configuration
-Create a `.env` file from `.env.example`:
+### 2. Configure MySQL Database
+Edit `.env` (or `backend/.env`) with your MySQL credentials:
 ```env
 PORT=5000
 NODE_ENV=development
-DB_CLIENT=sqlite
+
+# MySQL Connection Details
+DB_CLIENT=mysql
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=kirana_saas_db
+DB_USER=root
+DB_PASSWORD=your_mysql_password
+JWT_SECRET=production_super_jwt_secret_key_2026
 
 # Razorpay Test Credentials (Optional)
 RAZORPAY_KEY_ID=rzp_test_kirana_demo
@@ -150,15 +201,27 @@ STORE_UPI_ID=apnakirana@okhdfcbank
 STORE_UPI_NAME=Apna Kirana & Supermarket
 ```
 
-### 3. Run Development Servers
+### 3. Initialize Database & Seed Multi-Tenant Data
+Run the automated initialization script to create tables, seeds, and migrations:
 ```bash
-# Starts both Express API Server (5000) and Vite Storefront (5173) concurrently
+npm run db:init
+```
+
+### 4. Run Development Servers
+```bash
+# Option A: Start both Backend (5000) and Frontend (5173) concurrently
 npm run dev
+
+# Option B: Run Frontend only
+npm run dev:frontend
+
+# Option C: Run Backend only
+npm run dev:backend
 ```
 
 Open your browser:
-- **Storefront & Login:** [http://localhost:5173/](http://localhost:5173/)
-- **Backend API & Health:** [http://localhost:5000/api/platform/health](http://localhost:5000/api/platform/health)
+- **Storefront & POS Terminal:** [http://localhost:5173/](http://localhost:5173/)
+- **Backend API & Health Status:** [http://localhost:5000/api/platform/health](http://localhost:5000/api/platform/health)
 
 ---
 

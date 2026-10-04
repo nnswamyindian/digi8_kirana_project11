@@ -23,7 +23,7 @@ function runScript(filePath) {
     const child = spawn(process.execPath, [filePath], {
       cwd: ROOT_DIR,
       stdio: 'inherit',
-      env: { ...process.env, NODE_ENV: 'test', DB_CLIENT: 'sqlite' }
+      env: { ...process.env, NODE_ENV: 'test', DB_CLIENT: 'mysql' }
     });
 
     child.on('close', (code) => {

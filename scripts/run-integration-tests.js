@@ -19,7 +19,7 @@ const HEALTH_URL = `http://localhost:${PORT}/api/platform/health`;
 const integrationSuites = [
   { name: 'Strict Multi-Tenant Isolation & Role Security', file: 'test_strict_tenant_isolation.cjs' },
   { name: 'Phase 4 Multi-Tenant SaaS & Store Lifecycle', file: 'test_phase4_multi_tenant.cjs' },
-  { name: 'Complete Multi-Persona Authentication & Tenant Resolution', file: 'server/test_all_logins.js' },
+  { name: 'Complete Multi-Persona Authentication & Tenant Resolution', file: 'backend/test_all_logins.js' },
 ];
 
 function checkHealth(url) {
@@ -67,10 +67,11 @@ async function main() {
   console.log('================================================================\n');
 
   console.log(`🚀 Starting backend server on port ${PORT}...`);
-  const serverProcess = spawn(process.execPath, ['server/index.js'], {
-    cwd: ROOT_DIR,
+  const serverScript = path.join(ROOT_DIR, 'backend', 'index.js');
+  const serverProcess = spawn(process.execPath, [serverScript], {
+    cwd: path.join(ROOT_DIR, 'backend'),
     stdio: 'pipe',
-    env: { ...process.env, PORT: String(PORT), NODE_ENV: 'test', DB_CLIENT: process.env.DB_CLIENT || 'sqlite' }
+    env: { ...process.env, PORT: String(PORT), NODE_ENV: 'test', DB_CLIENT: process.env.DB_CLIENT || 'mysql' }
   });
 
   serverProcess.stdout.on('data', (d) => {
