@@ -350,7 +350,7 @@ export const PlatformAdminDashboard: React.FC<PlatformAdminDashboardProps> = ({
                 background: health?.status === 'ok' ? '#22c55e' : '#ef4444'
               }}></span>
               <span style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>
-                {health?.database?.engine?.toUpperCase() || 'SQLITE'} POOL
+                {health?.database?.engine?.toUpperCase() || 'MYSQL'} POOL
               </span>
             </div>
             <div style={{ fontSize: '0.75rem', color: '#64748b' }}>

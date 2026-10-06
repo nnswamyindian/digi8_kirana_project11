@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -3480,8 +3481,15 @@ if (activeDist) {
 // Startup & Database Initializer
 initDatabase().then(() => {
   app.listen(PORT, () => {
-    console.log(`Kirana Central Database & API Server running on port ${PORT}`);
+    console.log(`🚀 Kirana Central Database & API Server running on port ${PORT}`);
+    console.log(`📡 Connected to MySQL database "${process.env.DB_NAME || 'kirana_saas_db'}" on ${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 3306}`);
   });
 }).catch(err => {
-  console.error('Database initialization error:', err);
+  console.warn('\n⚠️  [MySQL Database Connection Warning]:', err.message);
+  console.warn(`   Server will still start on port ${PORT} to serve API routes and frontend connections.`);
+  console.warn('   👉 Please ensure your MySQL service is running and configure DB_PASSWORD in backend/.env.');
+  console.warn('   👉 Run "npm run db:init" once credentials are set to create tables & seed demo data.\n');
+  app.listen(PORT, () => {
+    console.log(`🚀 Kirana Central API Server listening on port ${PORT} (Database pending connection)`);
+  });
 });

@@ -8,7 +8,7 @@ import {
 } from '../types';
 import { getFallbackDemoUser, DEFAULT_FALLBACK_STORE } from './fallbackData';
 
-const BASE_URL = '/api';
+const BASE_URL = (import.meta.env.VITE_API_URL as string) || '/api';
 
 // Multi-Tenant Resolution State
 let activeTenantId: string = (() => {

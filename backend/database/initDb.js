@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { initDatabase, getPool, ensureDatabaseExists } from '../db.js';
 
 async function main() {

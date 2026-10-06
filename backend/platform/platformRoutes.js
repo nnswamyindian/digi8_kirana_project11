@@ -80,7 +80,7 @@ router.get('/stats', async (req, res) => {
       recent_tenants: recentTenants,
       system_health: {
         database: 'UP',
-        database_type: isMySQL() ? 'MYSQL' : 'SQLITE',
+        database_type: 'MYSQL',
         uptime_seconds: Math.round(process.uptime()),
         memory_usage_mb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
       },

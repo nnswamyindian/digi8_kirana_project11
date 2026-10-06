@@ -148,7 +148,7 @@ export interface PlatformAdminStats {
   recent_stores: Tenant[];
   system_health: {
     database: 'UP' | 'DOWN';
-    database_type: 'MYSQL' | 'SQLITE';
+    database_type: 'MYSQL';
     active_connections: number;
     memory_usage_mb: number;
     uptime_seconds: number;
