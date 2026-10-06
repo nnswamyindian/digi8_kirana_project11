@@ -31,7 +31,8 @@ import {
   LifeBuoy,
   Languages,
   Database,
-  TrendingUp
+  TrendingUp,
+  Menu
 } from 'lucide-react';
 import { Tenant } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
