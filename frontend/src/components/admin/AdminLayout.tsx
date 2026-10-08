@@ -32,7 +32,9 @@ import {
   Languages,
   Database,
   TrendingUp,
-  Menu
+  Menu,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { Tenant } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
@@ -78,10 +80,72 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   // Multi-Tenant List State
   const [tenantsList, setTenantsList] = useState<Tenant[]>([]);
 
+  // Responsive Navigation Shell State
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('admin_sidebar_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  // Global Real-time POS Cart Quantity for Header Badge
+  const [posCartTotalQty, setPosCartTotalQty] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(`pos_cart_${store?.id || 'default'}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.reduce((sum: number, it: any) => sum + (it.product?.is_loose || it.unit === 'KG' ? 1 : Math.round(it.quantity || 1)), 0);
+        }
+      }
+    } catch {}
+    return 0;
+  });
+
   // Notifications State
   const [notifications, setNotifications] = useState<NotificationEvent[]>([]);
   const [unreadNotifCount, setUnreadNotifCount] = useState<number>(0);
   const [isNotifDrawerOpen, setIsNotifDrawerOpen] = useState<boolean>(false);
+
+  // Close mobile sidebar on route/tab change
+  useEffect(() => {
+    setIsMobileSidebarOpen(false);
+  }, [activeTab]);
+
+  // Escape key closes mobile sidebar and notification popover
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsMobileSidebarOpen(false);
+        setIsNotifDrawerOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Listen to POS cart update events
+  useEffect(() => {
+    const handlePosCartUpdate = (e: any) => {
+      if (e.detail && typeof e.detail.totalQuantity === 'number') {
+        setPosCartTotalQty(e.detail.totalQuantity);
+      }
+    };
+    window.addEventListener('pos_cart_updated', handlePosCartUpdate);
+    return () => window.removeEventListener('pos_cart_updated', handlePosCartUpdate);
+  }, []);
+
+  const toggleDesktopSidebar = () => {
+    setIsDesktopCollapsed(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('admin_sidebar_collapsed', String(next));
+      } catch {}
+      return next;
+    });
+  };
 
   const fetchNotifications = async () => {
     try {
@@ -187,8 +251,17 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
 
   return (
     <div className="admin-shell">
-      {/* Sidebar */}
-      <aside className="admin-sidebar">
+      {/* Mobile / Tablet Drawer Backdrop */}
+      {isMobileSidebarOpen && (
+        <div
+          className="admin-sidebar-backdrop"
+          onClick={() => setIsMobileSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Sidebar (Desktop Persistent / Collapsible + Mobile Slide-over Drawer) */}
+      <aside className={`admin-sidebar ${isMobileSidebarOpen ? 'mobile-open' : ''} ${isDesktopCollapsed ? 'collapsed' : ''}`}>
         {/* Sidebar Brand Header */}
         <div className="sidebar-brand">
           <div style={{
@@ -204,7 +277,8 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
             alignItems: 'center',
             justifyContent: 'center',
             fontSize: !isStoreContext ? '1.35rem' : '1.25rem',
-            boxShadow: !isStoreContext ? '0 4px 12px rgba(2, 132, 199, 0.35)' : 'none'
+            boxShadow: !isStoreContext ? '0 4px 12px rgba(2, 132, 199, 0.35)' : 'none',
+            flexShrink: 0
           }}>
             {!isStoreContext ? '🏢' : '🏪'}
           </div>
@@ -220,13 +294,41 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
                 : (language === 'te' ? 'యజమాని కంట్రోల్ సెంటర్' : 'Owner Command Center')}
             </span>
           </div>
+
+          {/* Mobile Drawer Close Button */}
+          <button
+            type="button"
+            className="sidebar-close-btn"
+            onClick={() => setIsMobileSidebarOpen(false)}
+            aria-label="Close navigation menu"
+            title="Close menu"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Desktop Sidebar Collapse Toggle */}
+        <div className="sidebar-collapse-wrapper">
+          <button
+            type="button"
+            className="sidebar-collapse-btn"
+            onClick={toggleDesktopSidebar}
+            title={isDesktopCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={isDesktopCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {isDesktopCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+            <span>{isDesktopCollapsed ? '' : 'Collapse Menu'}</span>
+          </button>
         </div>
 
         {/* Super Admin Store Context Exit Button inside Sidebar */}
         {isPlatformAdmin && isStoreContext && (
           <div style={{ padding: '0 12px 10px' }}>
             <button
-              onClick={onExitStoreContext}
+              onClick={() => {
+                if (onExitStoreContext) onExitStoreContext();
+                setIsMobileSidebarOpen(false);
+              }}
               style={{
                 width: '100%',
                 padding: '7px 12px',
@@ -261,9 +363,11 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
                 key={item.key}
                 className={`sidebar-nav-item ${isActive ? 'active' : ''}`}
                 style={item.highlight && !isActive ? { border: '1px solid rgba(16, 185, 129, 0.3)', color: '#6ee7b7' } : {}}
+                title={isDesktopCollapsed ? item.label : undefined}
                 onClick={() => {
                   onTabChange(item.key);
                   if (item.key === 'orders') onClearOrderAlerts();
+                  setIsMobileSidebarOpen(false); // Auto-close on mobile/tablet route selection!
                 }}
               >
                 <Icon size={18} />
@@ -277,11 +381,14 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
         </nav>
 
         {/* Sidebar Footer */}
-        <div style={{ padding: '16px 14px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+        <div className="sidebar-footer">
           {isPlatformAdmin && onSwitchToLanding && (
             <button
-              onClick={onSwitchToLanding}
-              className="btn btn-secondary"
+              onClick={() => {
+                onSwitchToLanding();
+                setIsMobileSidebarOpen(false);
+              }}
+              className="btn btn-secondary sidebar-action-btn"
               style={{ width: '100%', marginBottom: '8px', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.3)', background: 'rgba(56, 189, 248, 0.08)', fontSize: '0.825rem', fontWeight: 700 }}
             >
               <Globe size={14} />
@@ -290,8 +397,11 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
           )}
 
           <button
-            onClick={onSwitchToStorefront}
-            className="btn btn-secondary"
+            onClick={() => {
+              onSwitchToStorefront();
+              setIsMobileSidebarOpen(false);
+            }}
+            className="btn btn-secondary sidebar-action-btn store-view-btn"
             style={{ width: '100%', marginBottom: '8px', color: 'white', borderColor: 'rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.05)', fontSize: '0.825rem' }}
           >
             <ExternalLink size={14} />
@@ -299,15 +409,18 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
           </button>
 
           <button
-            onClick={onLogout}
-            className="btn btn-secondary"
+            onClick={() => {
+              onLogout();
+              setIsMobileSidebarOpen(false);
+            }}
+            className="btn btn-secondary sidebar-action-btn logout-btn"
             style={{ width: '100%', color: '#f87171', borderColor: 'rgba(248, 113, 113, 0.2)', background: 'transparent', fontSize: '0.825rem' }}
           >
             <LogOut size={14} />
             <span>{t.logout}</span>
           </button>
 
-          <div style={{ textAlign: 'center', marginTop: '12px', fontSize: '0.7rem', color: '#64748b' }}>
+          <div className="sidebar-credits">
             Designed by{' '}
             <a
               href="https://digi8solutions.com"
@@ -382,38 +495,45 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
 
         {/* Topbar */}
         <header className="admin-topbar">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)' }}>
+          <div className="admin-topbar-left">
+            {/* Hamburger Menu Button for Mobile & Tablet */}
+            <button
+              type="button"
+              className="admin-hamburger-btn"
+              onClick={() => setIsMobileSidebarOpen(prev => !prev)}
+              aria-label="Toggle navigation menu"
+              title="Toggle Menu"
+            >
+              <Menu size={20} />
+            </button>
+
+            {/* Page Title */}
+            <h1 className="admin-page-title">
               {navItems.find(n => n.key === activeTab)?.label || (!isStoreContext ? t.platformDashboard : t.dashboard)}
-            </h2>
+            </h1>
 
             {/* Store Open / Closed Switch (Only in Store Context) */}
             {isStoreContext && (
               <button
                 onClick={onToggleStoreStatus}
-                className={`btn btn-sm ${isOpen ? 'btn-primary' : 'btn-danger'}`}
-                style={{ borderRadius: 'var(--radius-full)', padding: '5px 12px' }}
+                className={`btn btn-sm store-status-btn ${isOpen ? 'btn-primary' : 'btn-danger'}`}
+                title={isOpen ? 'Store is online and receiving orders' : 'Store is currently closed'}
               >
                 <Power size={13} />
-                <span>
+                <span className="status-text-full">
                   {isOpen 
                     ? (language === 'te' ? 'షాప్: ఓపెన్ (ఆన్‌లైన్)' : 'STORE: OPEN (ONLINE)')
                     : (language === 'te' ? 'షాప్: మూసివేయబడింది' : 'STORE: CLOSED')}
+                </span>
+                <span className="status-text-compact">
+                  {isOpen ? '● OPEN' : '● CLOSED'}
                 </span>
               </button>
             )}
 
             {/* Multi-Tenant Store Context Switcher (ONLY FOR PLATFORM ADMIN) */}
             {isPlatformAdmin ? (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                background: isStoreContext ? '#eff6ff' : '#f8fafc',
-                padding: '4px 10px',
-                borderRadius: '8px',
-                border: isStoreContext ? '1.5px solid #3b82f6' : '1px solid #cbd5e1'
-              }}>
+              <div className="platform-context-switcher">
                 <span style={{ fontSize: '0.72rem', fontWeight: 800, color: isStoreContext ? '#1d4ed8' : '#64748b', textTransform: 'uppercase' }}>
                   {t.storeContext}:
                 </span>
@@ -435,7 +555,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
                     background: 'transparent',
                     cursor: 'pointer',
                     outline: 'none',
-                    maxWidth: '220px'
+                    maxWidth: '180px'
                   }}
                 >
                   <option value="ALL">{t.allStoresPlatformMode}</option>
@@ -491,92 +611,87 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
                 )}
               </div>
             ) : (
-              /* Regular Store Owner & Staff: Clean, verified store badge with NO switcher */
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(5, 150, 105, 0.08)', padding: '4px 12px', borderRadius: '8px', border: '1px solid rgba(5, 150, 105, 0.2)' }}>
+              /* Regular Store Owner & Staff: Clean verified store badge */
+              <div className="topbar-store-badge" title={store.name}>
                 <Store size={14} color="var(--primary-700)" />
-                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--primary-800)' }}>
+                <span className="store-badge-name">
                   {store.name}
                 </span>
-                <span style={{ fontSize: '0.65rem', background: '#dcfce7', color: '#15803d', padding: '1px 6px', borderRadius: '4px', fontWeight: 700, letterSpacing: '0.5px' }}>
+                <span className="store-badge-tag">
                   {language === 'te' ? 'నా దుకాణం' : 'MY STORE'}
                 </span>
               </div>
             )}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div className="admin-topbar-right">
+            {/* Real-time POS Cart Indicator in Header (Opens POS cart on mobile/tablet) */}
+            {activeTab === 'pos' && (
+              <button
+                type="button"
+                className="topbar-cart-btn"
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent('pos_open_cart'));
+                }}
+                title={`POS Cart: ${posCartTotalQty} units in cart`}
+                aria-label="View POS cart"
+              >
+                <ShoppingCart size={16} />
+                {posCartTotalQty > 0 && (
+                  <span className="topbar-cart-badge">
+                    {posCartTotalQty}
+                  </span>
+                )}
+                <span className="topbar-cart-label">Cart</span>
+              </button>
+            )}
+
             {/* Language Toggle Button */}
             <button
               onClick={toggleLanguage}
               title={language === 'te' ? 'Switch to English' : 'తెలుగులోకి మార్చండి'}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                padding: '6px 11px',
-                borderRadius: '8px',
-                background: '#f8fafc',
-                border: '1px solid #cbd5e1',
-                color: '#0f172a',
-                fontSize: '0.8rem',
-                fontWeight: 700,
-                cursor: 'pointer'
-              }}
+              className="topbar-lang-btn"
+              aria-label="Toggle language"
             >
               <Languages size={15} color="#16a34a" />
-              <span>{language === 'te' ? 'English' : 'తెలుగు'}</span>
+              <span className="lang-text-full">{language === 'te' ? 'English' : 'తెలుగు'}</span>
+              <span className="lang-text-compact">{language === 'te' ? 'EN' : 'తె'}</span>
             </button>
 
             {/* Online Order Chime Alert Pill */}
             {newOrderAlertCount > 0 && (
               <button
-                className="btn btn-accent btn-sm"
+                className="btn btn-accent btn-sm topbar-alert-btn"
                 onClick={() => {
                   onTabChange('orders');
                   onClearOrderAlerts();
                 }}
                 style={{ animation: 'pulse 1.5s infinite' }}
               >
-                <Bell size={15} />
-                <span>
+                <Bell size={14} />
+                <span className="alert-text-full">
                   {language === 'te' 
-                    ? `${newOrderAlertCount} కొత్త ఆన్‌లైన్ ఆర్డర్లు వచ్చాయి!` 
-                    : `${newOrderAlertCount} New Online Order${newOrderAlertCount > 1 ? 's' : ''}!`}
+                    ? `${newOrderAlertCount} కొత్త ఆర్డర్లు!` 
+                    : `${newOrderAlertCount} New Order${newOrderAlertCount > 1 ? 's' : ''}!`}
                 </span>
+                <span className="alert-text-compact">{newOrderAlertCount}</span>
               </button>
             )}
 
             {/* Notification Bell with Badge */}
             <div style={{ position: 'relative' }}>
               <button
-                className="btn btn-secondary btn-sm"
+                className="btn btn-secondary btn-sm topbar-icon-btn"
                 onClick={() => setIsNotifDrawerOpen(prev => !prev)}
                 title="System Notifications"
+                aria-label="System notifications"
                 style={{
-                  position: 'relative',
-                  padding: '6px 10px',
-                  borderRadius: 'var(--radius-full)',
                   background: isNotifDrawerOpen ? 'var(--bg-subtle)' : 'white'
                 }}
               >
                 <Bell size={16} />
                 {unreadNotifCount > 0 && (
-                  <span style={{
-                    position: 'absolute',
-                    top: '-4px',
-                    right: '-4px',
-                    background: '#ef4444',
-                    color: 'white',
-                    fontSize: '0.65rem',
-                    fontWeight: 800,
-                    width: '18px',
-                    height: '18px',
-                    borderRadius: '50%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    border: '2px solid white'
-                  }}>
+                  <span className="topbar-badge-count">
                     {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
                   </span>
                 )}
@@ -586,9 +701,10 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
               {isNotifDrawerOpen && (
                 <div style={{
                   position: 'absolute',
-                  top: '40px',
+                  top: '42px',
                   right: 0,
-                  width: '360px',
+                  width: '340px',
+                  maxWidth: 'calc(100vw - 24px)',
                   maxHeight: '480px',
                   background: 'white',
                   borderRadius: 'var(--radius-xl)',
@@ -611,7 +727,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <Radio size={14} color="#059669" />
                       <strong style={{ fontSize: '0.875rem' }}>
-                        {language === 'te' ? 'సిస్టమ్ అలర్ట్‌లు & కార్యకలాపాలు' : 'System Alerts & Activity'}
+                        {language === 'te' ? 'సిస్టమ్ అలర్ట్‌లు' : 'System Alerts'}
                       </strong>
                     </div>
                     {unreadNotifCount > 0 && (
@@ -626,7 +742,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
                           cursor: 'pointer'
                         }}
                       >
-                        {language === 'te' ? 'అన్నీ చదివినట్లు గుర్తించు' : 'Mark all read'}
+                        {language === 'te' ? 'అన్నీ చదివినట్లు' : 'Mark all read'}
                       </button>
                     )}
                   </div>
@@ -636,7 +752,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
                       <div style={{ textAlign: 'center', padding: '30px 10px', color: 'var(--text-muted)' }}>
                         <Bell size={24} style={{ opacity: 0.3, marginBottom: '6px' }} />
                         <div style={{ fontSize: '0.85rem' }}>
-                          {language === 'te' ? 'తాజా నోటిఫికేషన్‌లు ఏవీ లేవు' : 'No recent notifications'}
+                          {language === 'te' ? 'తాజా నోటిఫికేషన్‌లు లేవు' : 'No recent notifications'}
                         </div>
                       </div>
                     ) : (
@@ -672,30 +788,27 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
             {/* Launch POS terminal directly (Only in Store Context) */}
             {isStoreContext && activeTab !== 'pos' && (
               <button
-                className="btn btn-primary btn-sm"
+                className="btn btn-primary btn-sm topbar-pos-shortcut"
                 onClick={() => onTabChange('pos')}
+                title={language === 'te' ? 'త్వరిత POS బిల్లింగ్' : 'Quick POS Billing'}
               >
                 <CreditCard size={15} />
-                <span>{language === 'te' ? 'త్వరిత POS బిల్లింగ్' : 'Quick POS Billing'}</span>
+                <span className="pos-btn-text">{language === 'te' ? 'POS బిల్లింగ్' : 'Quick POS'}</span>
               </button>
             )}
 
             {/* Current Logged-in Staff Badge */}
             {currentUser && (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                background: 'var(--bg-subtle)',
-                padding: '4px 10px',
-                borderRadius: 'var(--radius-full)',
-                border: '1px solid var(--border-light)',
-                fontSize: '0.8rem'
-              }}>
-                <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>{currentUser.name}</span>
-                <span className={`badge ${currentUser.role === 'OWNER' ? 'badge-purple' : 'badge-blue'}`} style={{ fontSize: '0.65rem', padding: '2px 6px' }}>
-                  {currentUser.role.replace('_', ' ')}
-                </span>
+              <div className="topbar-user-badge" title={`${currentUser.name} (${currentUser.role})`}>
+                <div className="user-avatar-circle">
+                  {currentUser.name ? currentUser.name.slice(0, 2).toUpperCase() : 'U'}
+                </div>
+                <div className="user-details-text">
+                  <span className="user-name">{currentUser.name}</span>
+                  <span className={`badge ${currentUser.role === 'OWNER' ? 'badge-purple' : 'badge-blue'}`} style={{ fontSize: '0.65rem', padding: '2px 6px' }}>
+                    {currentUser.role.replace('_', ' ')}
+                  </span>
+                </div>
               </div>
             )}
           </div>

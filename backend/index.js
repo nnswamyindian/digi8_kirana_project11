@@ -4,6 +4,7 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import multer from 'multer';
 import db, { initDatabase, query, getOne, execute } from './db.js';
 import { paymentService } from './payment/paymentService.js';
 import { deliveryService } from './delivery/deliveryService.js';
@@ -64,43 +65,110 @@ app.use('/api', phase6Routes);
 app.use('/api', customerRoutes);
 
 // ----------------------------------------------------
-// IMAGE UPLOAD API (File & Base64 Support)
+// IMAGE UPLOAD API (Multipart FormData & Base64 Support)
 // ----------------------------------------------------
-app.post(['/api/upload', '/upload'], async (req, res) => {
-  try {
-    const { image, filename: clientFilename } = req.body;
-    if (!image) {
-      return res.status(400).json({ error: 'No image data provided' });
-    }
-
-    let base64Data = image;
-    let ext = 'jpg';
-    if (typeof image === 'string' && image.startsWith('data:')) {
-      const match = image.match(/^data:image\/([a-zA-Z0-9+.-]+);base64,(.+)$/);
-      if (match) {
-        ext = match[1] === 'jpeg' ? 'jpg' : match[1];
-        base64Data = match[2];
-      }
-    }
-
-    const cleanExt = (ext || 'jpg').replace(/[^a-zA-Z0-9]/g, '');
-    const cleanFilename = `prod_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${cleanExt}`;
-    const targetPath = path.join(UPLOAD_DIR, cleanFilename);
-
-    await fs.promises.writeFile(targetPath, Buffer.from(base64Data, 'base64'));
-
-    const publicUrl = `/uploads/${cleanFilename}`;
-    res.json({
-      success: true,
-      url: publicUrl,
-      filename: cleanFilename,
-      message: 'Image uploaded successfully'
-    });
-  } catch (err) {
-    console.error('[Upload Error]:', err);
-    res.status(500).json({ error: 'Failed to upload image: ' + err.message });
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, UPLOAD_DIR);
+  },
+  filename: (req, file, cb) => {
+    const ext = (path.extname(file.originalname) || '.jpg').toLowerCase();
+    const cleanFilename = `prod_${Date.now()}_${Math.random().toString(36).substring(2, 8)}${ext}`;
+    cb(null, cleanFilename);
   }
 });
+
+const uploadMiddleware = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (allowed.includes(file.mimetype.toLowerCase())) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid image format. Supported formats: JPG, JPEG, PNG, and WEBP.'));
+    }
+  }
+}).single('image');
+
+const handleImageUpload = (req, res) => {
+  uploadMiddleware(req, res, async (err) => {
+    res.setHeader('Content-Type', 'application/json');
+
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({
+          success: false,
+          error: 'Image file too large. Maximum allowed size is 10MB.'
+        });
+      }
+      return res.status(400).json({
+        success: false,
+        error: err.message || 'Image upload validation failed.'
+      });
+    }
+
+    try {
+      const tenantId = req.tenant?.id || req.headers['x-tenant-id'] || 'store_royal_001';
+
+      // 1. Multipart file uploaded via FormData
+      if (req.file) {
+        const publicUrl = `/uploads/${req.file.filename}`;
+        console.log(`[PRODUCT_IMAGE_UPLOAD] tenantId=${tenantId} file=${req.file.filename} size=${req.file.size} mime=${req.file.mimetype}`);
+        return res.json({
+          success: true,
+          url: publicUrl,
+          imageUrl: publicUrl,
+          filename: req.file.filename,
+          message: 'Image uploaded successfully'
+        });
+      }
+
+      // 2. Base64 JSON image payload
+      const { image, filename: clientFilename } = req.body || {};
+      if (!image) {
+        return res.status(400).json({
+          success: false,
+          error: 'No image file or image data provided. Please select an image.'
+        });
+      }
+
+      let base64Data = image;
+      let ext = 'jpg';
+      if (typeof image === 'string' && image.startsWith('data:')) {
+        const match = image.match(/^data:image\/([a-zA-Z0-9+.-]+);base64,(.+)$/);
+        if (match) {
+          ext = match[1] === 'jpeg' ? 'jpg' : match[1];
+          base64Data = match[2];
+        }
+      }
+
+      const cleanExt = (ext || 'jpg').replace(/[^a-zA-Z0-9]/g, '');
+      const cleanFilename = `prod_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${cleanExt}`;
+      const targetPath = path.join(UPLOAD_DIR, cleanFilename);
+
+      await fs.promises.writeFile(targetPath, Buffer.from(base64Data, 'base64'));
+
+      const publicUrl = `/uploads/${cleanFilename}`;
+      console.log(`[PRODUCT_IMAGE_UPLOAD] tenantId=${tenantId} base64_file=${cleanFilename}`);
+      return res.json({
+        success: true,
+        url: publicUrl,
+        imageUrl: publicUrl,
+        filename: cleanFilename,
+        message: 'Image uploaded successfully'
+      });
+    } catch (uploadErr) {
+      console.error('[Upload Error]:', uploadErr);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to process and store image: ' + uploadErr.message
+      });
+    }
+  });
+};
+
+app.post(['/api/upload', '/upload', '/api/products/upload-image', '/products/upload-image'], handleImageUpload);
 
 // Health Check direct aliases for load balancers, monitoring & CI/CD probes
 app.get(['/health', '/api/health'], (req, res, next) => {
@@ -160,53 +228,6 @@ app.get('/api/events', (req, res) => {
   });
 });
 
-// ----------------------------------------------------
-// PRODUCT IMAGE UPLOAD SERVICE (Camera, Gallery & Files)
-// ----------------------------------------------------
-app.post('/api/upload', async (req, res) => {
-  try {
-    const { image, filename } = req.body;
-    if (!image) {
-      return res.status(400).json({ error: 'No image data provided. Please select or take a photo.' });
-    }
-
-    // Match Base64 Data URL
-    const match = image.match(/^data:image\/([a-zA-Z0-9+.-]+);base64,(.+)$/);
-    if (!match) {
-      return res.status(400).json({ error: 'Invalid image format. Supported formats: JPG, JPEG, PNG, WEBP' });
-    }
-
-    let ext = match[1].toLowerCase();
-    if (ext === 'jpeg') ext = 'jpg';
-    if (!['jpg', 'jpeg', 'png', 'webp'].includes(ext)) {
-      return res.status(400).json({ error: `Unsupported image format (${ext}). Supported: JPG, JPEG, PNG, WEBP` });
-    }
-
-    const base64Data = match[2];
-    const buffer = Buffer.from(base64Data, 'base64');
-
-    if (buffer.length > 10 * 1024 * 1024) {
-      return res.status(400).json({ error: 'Image size exceeds maximum limit of 10MB. Please use a smaller image.' });
-    }
-
-    const safeName = `prod_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
-    const filePath = path.join(UPLOAD_DIR, safeName);
-    fs.writeFileSync(filePath, buffer);
-
-    const imageUrl = `/uploads/${safeName}`;
-    console.log(`[Upload Success]: Saved image to ${filePath} -> ${imageUrl}`);
-
-    res.json({
-      success: true,
-      url: imageUrl,
-      filename: safeName,
-      size_bytes: buffer.length
-    });
-  } catch (err) {
-    console.error('[Upload Error]:', err);
-    res.status(500).json({ error: 'Unable to upload image. Please try again.' });
-  }
-});
 
 // ----------------------------------------------------
 // 0. TENANT RESOLUTION & PUBLIC STOREFRONT SLUG ROUTING
@@ -275,24 +296,27 @@ app.get('/api/storefront/:slug', async (req, res) => {
 // ----------------------------------------------------
 app.get('/api/store', async (req, res) => {
   try {
-    const tenantId = req.tenant?.id || 'store_royal_001';
+    const tenantId = req.tenant?.id || req.headers['x-tenant-id'] || 'store_royal_001';
     let store = await getOne('SELECT * FROM tenants WHERE id = ?', [tenantId]);
     if (!store) {
       store = await getOne('SELECT * FROM stores WHERE id = ?', [tenantId]);
     }
     if (!store) {
-      store = await getOne('SELECT * FROM stores LIMIT 1');
+      // Look up by slug or fallback to default
+      store = await getOne('SELECT * FROM tenants WHERE slug = ?', [tenantId]) ||
+              await getOne('SELECT * FROM stores WHERE id = ?', ['store_royal_001']) ||
+              await getOne('SELECT * FROM tenants LIMIT 1');
     }
 
     if (store) {
       if (!store.phone && store.owner_phone) {
         store.phone = store.owner_phone;
       }
-      if (!store.upi_id) {
-        const fallbackStore = await getOne('SELECT upi_id FROM stores WHERE id = ? OR id = "store_royal_001" LIMIT 1', [tenantId]);
-        const paySettings = await getOne('SELECT store_upi_id FROM payment_settings WHERE tenant_id = ? OR id = "default" LIMIT 1', [tenantId]);
-        store.upi_id = fallbackStore?.upi_id || paySettings?.store_upi_id || 'apnakirana@okhdfcbank';
-      }
+      // Check payment_settings for tenant-specific store_upi_id
+      const paySettings = await getOne('SELECT store_upi_id, upi_id FROM payment_settings WHERE tenant_id = ? OR id = ? LIMIT 1', [tenantId, 'pay_' + tenantId]);
+      const resolvedUpi = store.upi_id || paySettings?.store_upi_id || paySettings?.upi_id || '';
+      store.upi_id = resolvedUpi;
+      store.store_upi_id = resolvedUpi;
     }
 
     res.json(store);
@@ -304,12 +328,42 @@ app.get('/api/store', async (req, res) => {
 app.put('/api/store', async (req, res) => {
   try {
     const s = req.body;
-    const tenantId = req.tenant?.id || s.id || 'store_royal_001';
+    const tenantId = req.tenant?.id || req.headers['x-tenant-id'] || s.id || 'store_royal_001';
     const now = new Date().toISOString();
-    const activeUpi = s.upi_id || 'apnakirana@okhdfcbank';
-    const defaultPrinterWidth = s.printer_width || '58mm';
 
-    // 1. Update in stores table (resilient to id vs tenant_id)
+    // Partial update protection: resolve existing store first so missing fields are not wiped
+    let existing = await getOne('SELECT * FROM stores WHERE id = ?', [tenantId]);
+    if (!existing) {
+      existing = await getOne('SELECT * FROM tenants WHERE id = ?', [tenantId]);
+    }
+    existing = existing || {};
+
+    const activeName = s.name !== undefined ? s.name : (existing.name || 'Apna Kirana');
+    const activeTagline = s.tagline !== undefined ? s.tagline : (existing.tagline || '');
+    const activeOwner = s.owner_name !== undefined ? s.owner_name : (existing.owner_name || '');
+    const activePhone = s.phone !== undefined ? s.phone : (existing.phone || existing.owner_phone || '');
+    const activeEmail = s.email !== undefined ? s.email : (existing.email || existing.owner_email || '');
+    const activeAddress = s.address !== undefined ? s.address : (existing.address || '');
+    const activeGstin = s.gstin !== undefined ? s.gstin : (existing.gstin || '');
+    const activeUpi = s.upi_id !== undefined ? s.upi_id : (s.store_upi_id !== undefined ? s.store_upi_id : (existing.upi_id || ''));
+    const activeMinOrder = s.min_order_value !== undefined ? Number(s.min_order_value) : (existing.min_order_value || 0);
+    const activeDeliveryCharge = s.delivery_charge !== undefined ? Number(s.delivery_charge) : (existing.delivery_charge || 0);
+    const activeFreeAbove = s.free_delivery_above !== undefined ? Number(s.free_delivery_above) : (existing.free_delivery_above || 500);
+    const activeDeliveryMins = s.estimated_delivery_mins !== undefined ? s.estimated_delivery_mins : (existing.estimated_delivery_mins || '30 mins');
+    const activeStatus = s.store_status !== undefined ? s.store_status : (existing.store_status || 'OPEN');
+    const activeOpenTime = s.opening_time !== undefined ? s.opening_time : (existing.opening_time || '07:00');
+    const activeCloseTime = s.closing_time !== undefined ? s.closing_time : (existing.closing_time || '22:00');
+    const activeOpDays = s.operating_days !== undefined ? s.operating_days : (existing.operating_days || 'All Days');
+    const activeLogo = s.logo_url !== undefined ? s.logo_url : (existing.logo_url || '');
+    const defaultPrinterWidth = s.printer_width || existing.printer_width || '58mm';
+    const printerConn = s.printer_connection || existing.printer_connection || 'BROWSER_DIRECT';
+    const primaryCol = s.primary_color || existing.primary_color || '#16a34a';
+    const secondaryCol = s.secondary_color || existing.secondary_color || '#0f766e';
+    const buttonCol = s.button_color || existing.button_color || '#15803d';
+    const cashierDisc = s.cashier_max_discount !== undefined ? Number(s.cashier_max_discount) : (Number(existing.cashier_max_discount) || 5);
+    const managerDisc = s.manager_max_discount !== undefined ? Number(s.manager_max_discount) : (Number(existing.manager_max_discount) || 20);
+
+    // 1. Update stores table for this specific tenant
     try {
       const storeRes = await execute(`
         UPDATE stores SET
@@ -321,46 +375,40 @@ app.put('/api/store', async (req, res) => {
           primary_color = ?, secondary_color = ?, button_color = ?,
           cashier_max_discount = ?, manager_max_discount = ?,
           updated_at = ?
-        WHERE id = ? OR id = 'store_royal_001'
+        WHERE id = ?
       `, [
-        s.name, s.tagline, s.owner_name, s.phone, s.email, s.address,
-        s.gstin, activeUpi, s.min_order_value, s.delivery_charge,
-        s.free_delivery_above, s.estimated_delivery_mins, s.store_status,
-        s.opening_time, s.closing_time, s.operating_days, s.logo_url,
-        defaultPrinterWidth, s.printer_connection || 'BROWSER_DIRECT',
-        s.primary_color || '#16a34a', s.secondary_color || '#0f766e', s.button_color || '#15803d',
-        Number(s.cashier_max_discount) || 5, Number(s.manager_max_discount) || 20,
+        activeName, activeTagline, activeOwner, activePhone, activeEmail, activeAddress,
+        activeGstin, activeUpi, activeMinOrder, activeDeliveryCharge,
+        activeFreeAbove, activeDeliveryMins, activeStatus,
+        activeOpenTime, activeCloseTime, activeOpDays, activeLogo,
+        defaultPrinterWidth, printerConn,
+        primaryCol, secondaryCol, buttonCol,
+        cashierDisc, managerDisc,
         now, tenantId
       ]);
+
       if (storeRes && storeRes.affectedRows === 0) {
-        // Fallback: update first available store
         await execute(`
-          UPDATE stores SET
-            name = ?, tagline = ?, owner_name = ?, phone = ?, email = ?, address = ?,
-            gstin = ?, upi_id = ?, min_order_value = ?, delivery_charge = ?,
-            free_delivery_above = ?, estimated_delivery_mins = ?, store_status = ?,
-            opening_time = ?, closing_time = ?, operating_days = ?, logo_url = ?,
-            printer_width = ?, printer_connection = ?,
-            primary_color = ?, secondary_color = ?, button_color = ?,
-            cashier_max_discount = ?, manager_max_discount = ?,
-            updated_at = ?
-          LIMIT 1
+          INSERT INTO stores (
+            id, name, tagline, owner_name, phone, email, address, gstin, upi_id,
+            min_order_value, delivery_charge, free_delivery_above, estimated_delivery_mins,
+            store_status, opening_time, closing_time, operating_days, logo_url,
+            printer_width, printer_connection, primary_color, secondary_color, button_color,
+            cashier_max_discount, manager_max_discount, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
-          s.name, s.tagline, s.owner_name, s.phone, s.email, s.address,
-          s.gstin, activeUpi, s.min_order_value, s.delivery_charge,
-          s.free_delivery_above, s.estimated_delivery_mins, s.store_status,
-          s.opening_time, s.closing_time, s.operating_days, s.logo_url,
-          defaultPrinterWidth, s.printer_connection || 'BROWSER_DIRECT',
-          s.primary_color || '#16a34a', s.secondary_color || '#0f766e', s.button_color || '#15803d',
-          Number(s.cashier_max_discount) || 5, Number(s.manager_max_discount) || 20,
-          now
-        ]);
+          tenantId, activeName, activeTagline, activeOwner, activePhone, activeEmail, activeAddress, activeGstin, activeUpi,
+          activeMinOrder, activeDeliveryCharge, activeFreeAbove, activeDeliveryMins,
+          activeStatus, activeOpenTime, activeCloseTime, activeOpDays, activeLogo,
+          defaultPrinterWidth, printerConn, primaryCol, secondaryCol, buttonCol,
+          cashierDisc, managerDisc, now, now
+        ]).catch(() => {});
       }
     } catch (e) {
       console.warn('[Store Update Warning]: stores table error:', e.message);
     }
 
-    // 2. Update in tenants table
+    // 2. Update tenants table for this specific tenant
     try {
       await execute(`
         UPDATE tenants SET
@@ -373,30 +421,53 @@ app.put('/api/store', async (req, res) => {
           updated_at = ?
         WHERE id = ? OR slug = ?
       `, [
-        s.name, s.tagline, s.owner_name, s.phone, s.email, s.address,
-        s.gstin, activeUpi, s.min_order_value, s.delivery_charge, s.free_delivery_above,
-        s.estimated_delivery_mins, s.store_status, s.opening_time, s.closing_time,
-        s.operating_days, s.logo_url, defaultPrinterWidth, s.printer_connection || 'BROWSER_DIRECT',
-        s.primary_color || '#16a34a', s.secondary_color || '#0f766e', s.button_color || '#15803d',
-        Number(s.cashier_max_discount) || 5, Number(s.manager_max_discount) || 20,
+        activeName, activeTagline, activeOwner, activePhone, activeEmail, activeAddress,
+        activeGstin, activeUpi, activeMinOrder, activeDeliveryCharge, activeFreeAbove,
+        activeDeliveryMins, activeStatus, activeOpenTime, activeCloseTime,
+        activeOpDays, activeLogo, defaultPrinterWidth, printerConn,
+        primaryCol, secondaryCol, buttonCol,
+        cashierDisc, managerDisc,
         now, tenantId, tenantId
       ]);
     } catch (e) {
       console.warn('[Store Update Warning]: tenants table error:', e.message);
     }
 
-    // 3. Also synchronize payment_settings store_upi_id
-    if (activeUpi) {
-      await execute(`
-        UPDATE payment_settings SET store_upi_id = ?, updated_at = ?
-        WHERE tenant_id = ? OR id = 'default'
-      `, [activeUpi, now, tenantId]).catch(() => {});
+    // 3. Synchronize payment_settings for this tenant
+    try {
+      const payRow = await getOne('SELECT id FROM payment_settings WHERE tenant_id = ? OR id = ?', [tenantId, 'pay_' + tenantId]);
+      if (payRow) {
+        await execute(`
+          UPDATE payment_settings SET store_upi_id = ?, upi_id = ?, updated_at = ?
+          WHERE id = ?
+        `, [activeUpi, activeUpi, now, payRow.id]);
+      } else {
+        await execute(`
+          INSERT INTO payment_settings (
+            id, tenant_id, razorpay_enabled, razorpay_test_mode, store_upi_id, upi_id, store_upi_name,
+            cod_enabled, cod_min_order, cod_max_order, online_payment_enabled, cash_enabled, upi_enabled, card_enabled, updated_at
+          ) VALUES (?, ?, 0, 1, ?, ?, ?, 1, 100, 5000, 1, 1, 1, 0, ?)
+        `, ['pay_' + tenantId, tenantId, activeUpi, activeUpi, activeName, now]);
+      }
+    } catch (e) {
+      console.warn('[Store Update Warning]: payment_settings sync error:', e.message);
     }
 
-    broadcastEvent('store_updated', { ...s, printer_width: defaultPrinterWidth, upi_id: activeUpi, id: tenantId }, tenantId);
-    res.json({ success: true, message: 'Store profile & branding updated successfully' });
+    console.log(`[STORE_SETTINGS_UPDATE] tenantId=${tenantId} upi_id=${activeUpi} name=${activeName}`);
+    broadcastEvent('store_updated', { ...s, printer_width: defaultPrinterWidth, upi_id: activeUpi, store_upi_id: activeUpi, id: tenantId }, tenantId);
+    res.json({
+      success: true,
+      message: 'Store profile & branding updated successfully',
+      data: {
+        ...s,
+        id: tenantId,
+        name: activeName,
+        upi_id: activeUpi,
+        store_upi_id: activeUpi
+      }
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
@@ -482,11 +553,11 @@ app.get('/api/products', async (req, res) => {
     `;
     const params = [tenantId, tenantId];
 
-    // Filter by channel
+    // Filter by channel (Robust null-safe defaults for POS and Storefront)
     if (channel === 'website') {
-      sql += ' AND p.is_active = 1 AND p.is_visible_online = 1';
+      sql += ' AND (p.is_active = 1 OR p.is_active IS NULL) AND (p.is_visible_online = 1 OR p.is_visible_online IS NULL)';
     } else if (channel === 'pos') {
-      sql += ' AND p.is_active = 1 AND p.is_pos_available = 1';
+      sql += ' AND (p.is_active = 1 OR p.is_active IS NULL) AND (p.is_pos_available = 1 OR p.is_pos_available IS NULL)';
     }
 
     if (search) {
@@ -1361,6 +1432,17 @@ app.post('/api/orders/pos', async (req, res) => {
           invoiceNumber, previousStock, newStock, pit.cost_price,
           `POS Sale Invoice #${invoiceNumber}`, cashier_name || 'Cashier', now
         ]);
+        // Low stock owner notification check
+        if (newStock <= Number(pit.prod_ref.min_stock || 5)) {
+          await notificationService.createNotification({
+            type: 'LOW_STOCK',
+            title: `⚠️ Low Stock: ${pit.product_name}`,
+            message: `Stock for "${pit.product_name}" has dropped to ${newStock} ${pit.unit} (Minimum threshold: ${pit.prod_ref.min_stock || 5}). Please reorder soon!`,
+            entityType: 'product',
+            entityId: pit.prod_ref.id,
+            storeId: tenantId
+          }).catch(err => console.warn('[Low Stock Alert Error]:', err));
+        }
       }
     }
 
@@ -1397,11 +1479,36 @@ app.post('/api/orders/pos', async (req, res) => {
       });
     }
 
+    // Notify Store Owner about the POS sale
+    await notificationService.createNotification({
+      type: 'POS_SALE',
+      title: `🧾 New POS Bill #${invoiceNumber}`,
+      message: `Sale completed: ₹${finalBillTotal} (${processedItems.length} items) for ${resolvedCustomerName} via ${payment_method || 'CASH'}. Stock deducted automatically.`,
+      entityType: 'order',
+      entityId: orderId,
+      storeId: tenantId
+    }).catch(err => console.warn('[POS Sale Notif Error]:', err));
+
+    // Real-time broadcasts for instant sync across POS terminal, Storefront, and Dashboard
     broadcastEvent('pos_sale_completed', {
       order_id: orderId,
       invoice_number: invoiceNumber,
       total_amount: finalBillTotal,
       tenant_id: tenantId
+    }, tenantId);
+
+    broadcastEvent('stock_updated', {
+      tenant_id: tenantId,
+      order_id: orderId,
+      items: processedItems.map(p => ({
+        product_id: p.product_id,
+        new_stock: Math.max(0, (p.prod_ref?.stock || 0) - p.quantity)
+      }))
+    }, tenantId);
+
+    broadcastEvent('products_updated', {
+      tenant_id: tenantId,
+      reason: 'pos_sale_completed'
     }, tenantId);
 
     // Auto WhatsApp trigger if store has auto send enabled
@@ -1432,6 +1539,252 @@ app.post('/api/orders/pos', async (req, res) => {
   } catch (err) {
     console.error('[POS Sale Error]:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// PUT /api/orders/:id/update-bill — Add missed products to an existing bill, reconcile stock, recalculate totals, update bill & reprint
+// ----------------------------------------------------
+app.put('/api/orders/:id/update-bill', async (req, res) => {
+  try {
+    const orderId = req.params.id;
+    const { items, customer, discount, payment_method, notes, cashier_name } = req.body;
+    const tenantId = req.tenant?.id || 'store_royal_001';
+    const now = new Date().toISOString();
+
+    const existingOrder = await getOne(
+      'SELECT * FROM orders WHERE (id = ? OR order_number = ? OR invoice_number = ?) AND (tenant_id = ? OR store_id = ?)',
+      [orderId, orderId, orderId, tenantId, tenantId]
+    );
+
+    if (!existingOrder) {
+      return res.status(404).json({ error: 'Order not found for this store' });
+    }
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'At least one item is required on the bill' });
+    }
+
+    // 1. Fetch current order_items to compute inventory delta
+    const currentOrderItems = await query('SELECT * FROM order_items WHERE order_id = ?', [existingOrder.id]);
+    const oldQtyMap = new Map();
+    for (const oi of currentOrderItems) {
+      const prev = oldQtyMap.get(oi.product_id) || 0;
+      oldQtyMap.set(oi.product_id, prev + Number(oi.quantity));
+    }
+
+    const newQtyMap = new Map();
+    for (const it of items) {
+      const prev = newQtyMap.get(it.product_id) || 0;
+      newQtyMap.set(it.product_id, prev + Number(it.quantity));
+    }
+
+    // 2. Reconcile stock for each affected product in real time
+    const allProductIds = new Set([...oldQtyMap.keys(), ...newQtyMap.keys()]);
+    for (const pId of allProductIds) {
+      const oldQty = oldQtyMap.get(pId) || 0;
+      const newQty = newQtyMap.get(pId) || 0;
+      const diff = newQty - oldQty; // if positive: customer bought more, reduce stock; if negative: restore stock
+
+      if (diff !== 0) {
+        const prod = await getOne('SELECT * FROM products WHERE id = ?', [pId]);
+        if (prod) {
+          const currentStock = Number(prod.stock) || 0;
+          const adjustedStock = Math.max(0, currentStock - diff);
+
+          await execute('UPDATE products SET stock = ?, updated_at = ? WHERE id = ?', [adjustedStock, now, pId]);
+
+          // Record stock movement
+          await execute(`
+            INSERT INTO stock_movements (id, store_id, tenant_id, product_id, change_qty, balance_qty, type, reference_id, notes, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `, [
+            'sm_' + Math.random().toString(36).substring(2, 9),
+            tenantId, tenantId, pId, -diff, adjustedStock, 'BILL_REVISION', existingOrder.id,
+            `Bill #${existingOrder.invoice_number} revised (${diff > 0 ? `+${diff}` : diff} items)`, now
+          ]);
+
+          // Inventory transaction
+          await execute(`
+            INSERT INTO inventory_transactions (
+              id, tenant_id, product_id, product_name, quantity, unit, transaction_type,
+              reference_id, previous_stock, new_stock, unit_cost, notes, created_by, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `, [
+            'tx_' + Math.random().toString(36).substring(2, 9),
+            tenantId, pId, prod.name, -diff, prod.unit, 'ADJUSTMENT',
+            existingOrder.invoice_number, currentStock, adjustedStock, prod.purchase_cost,
+            `Bill items adjusted in #${existingOrder.invoice_number}`, cashier_name || 'Cashier', now
+          ]);
+
+          // Low stock alert if dropped
+          if (adjustedStock <= Number(prod.min_stock || 5)) {
+            await notificationService.createNotification({
+              type: 'LOW_STOCK',
+              title: `⚠️ Low Stock: ${prod.name}`,
+              message: `Stock for "${prod.name}" has reduced to ${adjustedStock} ${prod.unit} following bill update #${existingOrder.invoice_number}.`,
+              entityType: 'product',
+              entityId: pId,
+              storeId: tenantId
+            }).catch(e => console.warn('[Low Stock Alert Error]:', e));
+          }
+        }
+      }
+    }
+
+    // 3. Recalculate bill financial totals
+    let subtotalGross = 0;
+    let totalItemDiscounts = 0;
+    let totalTax = 0;
+    const processedItems = [];
+
+    for (const item of items) {
+      const prod = await getOne('SELECT * FROM products WHERE id = ?', [item.product_id]);
+      const qty = Math.max(0.001, Number(item.quantity) || 1);
+      const originalPrice = prod ? Number(prod.selling_price) : Number(item.unit_price);
+      const unitPrice = Number(item.unit_price) || originalPrice;
+      const costPrice = Number(item.cost_price || (prod ? prod.purchase_cost : 0));
+      const lineGross = Math.round(qty * originalPrice * 100) / 100;
+      subtotalGross += lineGross;
+
+      let lineDiscount = Number(item.discount_amount) || 0;
+      if (item.discount_type === 'PERCENT') {
+        const pct = Math.min(100, Math.max(0, Number(item.discount_value) || 0));
+        lineDiscount = Math.round(((lineGross * pct) / 100) * 100) / 100;
+      } else if (item.discount_type === 'FIXED' || item.discount_type === 'FLAT') {
+        lineDiscount = Math.min(lineGross, Number(item.discount_value) || lineDiscount);
+      }
+      totalItemDiscounts += lineDiscount;
+
+      const taxable = Math.max(0, lineGross - lineDiscount);
+      const gstRate = Number(item.gst_percent || (prod ? prod.gst_percent : 0)) || 0;
+      const tax = Math.round(((taxable * gstRate) / 100) * 100) / 100;
+      totalTax += tax;
+
+      const lineFinal = Math.round((taxable + tax) * 100) / 100;
+
+      processedItems.push({
+        id: 'item_' + Math.random().toString(36).substring(2, 9),
+        order_id: existingOrder.id,
+        tenant_id: tenantId,
+        product_id: item.product_id,
+        product_name: item.product_name || (prod ? prod.name : 'Unknown Product'),
+        unit: item.unit || (prod ? prod.unit : 'PACKET'),
+        quantity: qty,
+        unit_price: unitPrice,
+        cost_price: costPrice,
+        cost_snapshot: costPrice,
+        gross_profit: Math.round((lineFinal - (qty * costPrice)) * 100) / 100,
+        gross_amount: lineGross,
+        discount_type: item.discount_type || 'FLAT',
+        discount_value: item.discount_value || 0,
+        discount_amount: lineDiscount,
+        taxable_amount: taxable,
+        gst_percent: gstRate,
+        tax_amount: tax,
+        total_price: lineFinal,
+        manual_price_adjusted: item.manual_price_adjusted ? 1 : 0,
+        original_unit_price: originalPrice,
+        discount_reason: item.discount_reason || null,
+        approval_data: item.approval_data || null
+      });
+    }
+
+    const billLevelDiscount = Math.max(0, Number(discount) || 0);
+    const overallDiscount = totalItemDiscounts + billLevelDiscount;
+    const finalBillTotal = Math.max(0, Math.round((subtotalGross - overallDiscount + totalTax) * 100) / 100);
+
+    // 4. Replace old order_items with updated items
+    await execute('DELETE FROM order_items WHERE order_id = ?', [existingOrder.id]);
+    for (const pit of processedItems) {
+      await execute(`
+        INSERT INTO order_items (
+          id, order_id, tenant_id, product_id, product_name, unit, quantity,
+          unit_price, cost_price, cost_snapshot, gross_profit, gross_amount, discount_type, discount_value,
+          discount_amount, taxable_amount, gst_percent, tax_amount, total_price,
+          manual_price_adjusted, original_unit_price, discount_reason, approval_data
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        pit.id, pit.order_id, pit.tenant_id, pit.product_id, pit.product_name, pit.unit,
+        pit.quantity, pit.unit_price, pit.cost_price, pit.cost_snapshot, pit.gross_profit,
+        pit.gross_amount, pit.discount_type, pit.discount_value, pit.discount_amount,
+        pit.taxable_amount, pit.gst_percent, pit.tax_amount, pit.total_price,
+        pit.manual_price_adjusted, pit.original_unit_price, pit.discount_reason, pit.approval_data
+      ]);
+    }
+
+    // 5. Update orders record
+    const updatedNotes = notes !== undefined ? notes : existingOrder.notes;
+    await execute(`
+      UPDATE orders SET
+        subtotal = ?, discount = ?, gst_amount = ?, total_amount = ?,
+        payment_method = ?, notes = ?, updated_at = ?
+      WHERE id = ?
+    `, [
+      subtotalGross, overallDiscount, totalTax, finalBillTotal,
+      payment_method || existingOrder.payment_method, updatedNotes, now, existingOrder.id
+    ]);
+
+    // 6. Audit event
+    await logAuditEvent({
+      tenantId,
+      userId: req.user?.id || null,
+      userName: cashier_name || 'Cashier',
+      action: 'POS_BILL_REVISED_ITEMS_ADDED',
+      entityType: 'ORDER',
+      entityId: existingOrder.id,
+      newValues: {
+        invoice_number: existingOrder.invoice_number,
+        previous_total: existingOrder.total_amount,
+        updated_total: finalBillTotal,
+        items_count: processedItems.length
+      }
+    });
+
+    // 7. Notify Store Owner
+    await notificationService.createNotification({
+      type: 'BILL_UPDATED',
+      title: `✏️ Bill #${existingOrder.invoice_number} Updated`,
+      message: `Missed items added to bill #${existingOrder.invoice_number}. New Total: ₹${finalBillTotal} (previous: ₹${existingOrder.total_amount}). Stock updated automatically.`,
+      entityType: 'order',
+      entityId: existingOrder.id,
+      storeId: tenantId
+    }).catch(err => console.warn('[Bill Update Notif Error]:', err));
+
+    // 8. Real-time broadcast
+    broadcastEvent('stock_updated', {
+      tenant_id: tenantId,
+      order_id: existingOrder.id,
+      source: 'BILL_UPDATE'
+    }, tenantId);
+
+    broadcastEvent('products_updated', {
+      tenant_id: tenantId,
+      reason: 'bill_updated'
+    }, tenantId);
+
+    broadcastEvent('pos_sale_completed', {
+      order_id: existingOrder.id,
+      invoice_number: existingOrder.invoice_number,
+      total_amount: finalBillTotal,
+      tenant_id: tenantId
+    }, tenantId);
+
+    res.json({
+      success: true,
+      order_id: existingOrder.id,
+      order_number: existingOrder.order_number,
+      invoice_number: existingOrder.invoice_number,
+      subtotal: subtotalGross,
+      discount_amount: overallDiscount,
+      tax_amount: totalTax,
+      total_amount: finalBillTotal,
+      items: processedItems,
+      updated_at: now
+    });
+  } catch (err) {
+    console.error('[Update Bill Error]:', err);
+    res.status(500).json({ error: 'Failed to update bill: ' + err.message });
   }
 });
 
@@ -1980,22 +2333,45 @@ app.patch('/api/orders/:id/assign-delivery', async (req, res) => {
 app.get('/api/orders/delivery-boy/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
-    const orders = await query(`
-      SELECT * FROM orders
-      WHERE (assigned_delivery_boy_id = ? OR assigned_delivery_boy_id IS NULL)
-        AND order_type = 'ONLINE_DELIVERY'
-        AND status IN ('ACCEPTED', 'PREPARING', 'READY', 'ASSIGNED', 'OUT_FOR_DELIVERY', 'DELIVERED')
-      ORDER BY
-        CASE
-          WHEN status = 'OUT_FOR_DELIVERY' THEN 1
-          WHEN status = 'ASSIGNED' THEN 2
-          WHEN status = 'READY' THEN 3
-          WHEN status = 'PREPARING' THEN 4
-          WHEN status = 'ACCEPTED' THEN 5
-          ELSE 6
-        END,
-        created_at DESC
-    `, [userId]);
+    const rider = await getOne('SELECT * FROM users WHERE id = ?', [userId]);
+    const tenantId = rider?.tenant_id || rider?.store_id || req.headers['x-tenant-id'];
+
+    let orders;
+    if (tenantId) {
+      orders = await query(`
+        SELECT * FROM orders
+        WHERE (assigned_delivery_boy_id = ? OR (assigned_delivery_boy_id IS NULL AND (store_id = ? OR tenant_id = ?)))
+          AND order_type = 'ONLINE_DELIVERY'
+          AND status IN ('ACCEPTED', 'PREPARING', 'READY', 'ASSIGNED', 'OUT_FOR_DELIVERY', 'DELIVERED')
+        ORDER BY
+          CASE
+            WHEN status = 'OUT_FOR_DELIVERY' THEN 1
+            WHEN status = 'ASSIGNED' THEN 2
+            WHEN status = 'READY' THEN 3
+            WHEN status = 'PREPARING' THEN 4
+            WHEN status = 'ACCEPTED' THEN 5
+            ELSE 6
+          END,
+          created_at DESC
+      `, [userId, tenantId, tenantId]);
+    } else {
+      orders = await query(`
+        SELECT * FROM orders
+        WHERE (assigned_delivery_boy_id = ? OR assigned_delivery_boy_id IS NULL)
+          AND order_type = 'ONLINE_DELIVERY'
+          AND status IN ('ACCEPTED', 'PREPARING', 'READY', 'ASSIGNED', 'OUT_FOR_DELIVERY', 'DELIVERED')
+        ORDER BY
+          CASE
+            WHEN status = 'OUT_FOR_DELIVERY' THEN 1
+            WHEN status = 'ASSIGNED' THEN 2
+            WHEN status = 'READY' THEN 3
+            WHEN status = 'PREPARING' THEN 4
+            WHEN status = 'ACCEPTED' THEN 5
+            ELSE 6
+          END,
+          created_at DESC
+      `, [userId]);
+    }
 
     const enriched = await Promise.all(orders.map(async o => {
       const items = await query('SELECT * FROM order_items WHERE order_id = ?', [o.id]);
@@ -2279,6 +2655,7 @@ app.post('/api/auth/login', async (req, res) => {
       tenant: userTenant
     });
   } catch (err) {
+    console.error('[AUTH_LOGIN_ERROR]:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -3150,20 +3527,32 @@ app.post('/api/payments/refund', async (req, res) => {
   }
 });
 
-// 7. Payment Settings (Owner Configuration - Keys are masked in GET for security)
+// 7. Payment Settings (Owner Configuration - Scoped to Tenant)
 app.get('/api/payments/settings', async (req, res) => {
   try {
-    const settings = await getOne('SELECT * FROM payment_settings WHERE id = "default"');
-    const store = await getOne('SELECT * FROM stores LIMIT 1');
+    const tenantId = req.tenant?.id || req.headers['x-tenant-id'] || 'store_royal_001';
+    let settings = await getOne('SELECT * FROM payment_settings WHERE tenant_id = ? OR id = ? LIMIT 1', [tenantId, 'pay_' + tenantId]);
+    if (!settings && tenantId === 'store_royal_001') {
+      settings = await getOne('SELECT * FROM payment_settings WHERE id = "default" LIMIT 1');
+    }
+
+    const store = (await getOne('SELECT * FROM stores WHERE id = ? LIMIT 1', [tenantId])) ||
+                  (await getOne('SELECT * FROM tenants WHERE id = ? LIMIT 1', [tenantId])) || {};
+
+    const resolvedUpi = settings?.store_upi_id || settings?.upi_id || store.upi_id || '';
+    const resolvedStoreName = settings?.store_upi_name || settings?.upi_store_name || store.name || 'Apna Kirana';
 
     if (!settings) {
       return res.json({
+        tenant_id: tenantId,
         razorpay_enabled: 0,
         razorpay_test_mode: 1,
         razorpay_key_id: '',
         razorpay_key_secret_masked: '',
-        store_upi_id: store?.upi_id || 'apnakirana@okhdfcbank',
-        store_upi_name: store?.name || 'Apna Kirana',
+        store_upi_id: resolvedUpi,
+        upi_id: resolvedUpi,
+        store_upi_name: resolvedStoreName,
+        upi_store_name: resolvedStoreName,
         cod_enabled: 1,
         cod_min_order: 0,
         cod_max_order: 10000,
@@ -3182,6 +3571,10 @@ app.get('/api/payments/settings', async (req, res) => {
 
     res.json({
       ...settings,
+      store_upi_id: resolvedUpi,
+      upi_id: resolvedUpi,
+      store_upi_name: resolvedStoreName,
+      upi_store_name: resolvedStoreName,
       razorpay_key_secret: maskedSecret,
       razorpay_key_secret_masked: maskedSecret,
       has_key_secret: Boolean(settings.razorpay_key_secret)
@@ -3193,7 +3586,11 @@ app.get('/api/payments/settings', async (req, res) => {
 
 app.put('/api/payments/settings', async (req, res) => {
   try {
-    let existing = await getOne('SELECT * FROM payment_settings WHERE id = "default"');
+    const tenantId = req.tenant?.id || req.headers['x-tenant-id'] || 'store_royal_001';
+    let existing = await getOne('SELECT * FROM payment_settings WHERE tenant_id = ? OR id = ? LIMIT 1', [tenantId, 'pay_' + tenantId]);
+    if (!existing && tenantId === 'store_royal_001') {
+      existing = await getOne('SELECT * FROM payment_settings WHERE id = "default" LIMIT 1');
+    }
     const now = new Date().toISOString();
 
     const {
@@ -3203,7 +3600,9 @@ app.put('/api/payments/settings', async (req, res) => {
       razorpay_key_secret,
       razorpay_webhook_secret,
       store_upi_id,
+      upi_id,
       store_upi_name,
+      upi_store_name,
       store_upi_qr_url,
       cod_enabled,
       cod_min_order,
@@ -3214,19 +3613,23 @@ app.put('/api/payments/settings', async (req, res) => {
       card_enabled
     } = req.body;
 
+    const targetUpi = store_upi_id !== undefined ? store_upi_id : (upi_id !== undefined ? upi_id : (existing?.store_upi_id || ''));
+    const targetUpiName = store_upi_name !== undefined ? store_upi_name : (upi_store_name !== undefined ? upi_store_name : (existing?.store_upi_name || ''));
+    const settingId = existing?.id || ('pay_' + tenantId);
+
     if (!existing) {
       await execute(`
         INSERT INTO payment_settings (
-          id, razorpay_enabled, razorpay_test_mode, razorpay_key_id, razorpay_key_secret,
-          razorpay_webhook_secret, store_upi_id, store_upi_name, store_upi_qr_url,
+          id, tenant_id, razorpay_enabled, razorpay_test_mode, razorpay_key_id, razorpay_key_secret,
+          razorpay_webhook_secret, store_upi_id, upi_id, store_upi_name, upi_store_name, store_upi_qr_url,
           cod_enabled, cod_min_order, cod_max_order, online_payment_enabled,
           cash_enabled, upi_enabled, card_enabled, updated_at
         ) VALUES (
-          'default', 0, 1, '', '', '', 'apnakirana@okhdfcbank', 'Apna Kirana', '',
+          ?, ?, 0, 1, '', '', '', ?, ?, ?, ?, '',
           1, 100, 5000, 1, 1, 1, 0, ?
         )
-      `, [now]).catch(() => {});
-      existing = (await getOne('SELECT * FROM payment_settings WHERE id = "default"')) || {};
+      `, [settingId, tenantId, targetUpi, targetUpi, targetUpiName, targetUpiName, now]).catch(() => {});
+      existing = (await getOne('SELECT * FROM payment_settings WHERE id = ?', [settingId])) || {};
     }
 
     // Only update key secret if user supplied a new unmasked secret
@@ -3242,13 +3645,16 @@ app.put('/api/payments/settings', async (req, res) => {
 
     await execute(`
       UPDATE payment_settings SET
+        tenant_id = ?,
         razorpay_enabled = ?,
         razorpay_test_mode = ?,
         razorpay_key_id = ?,
         razorpay_key_secret = ?,
         razorpay_webhook_secret = ?,
         store_upi_id = ?,
+        upi_id = ?,
         store_upi_name = ?,
+        upi_store_name = ?,
         store_upi_qr_url = ?,
         cod_enabled = ?,
         cod_min_order = ?,
@@ -3258,15 +3664,18 @@ app.put('/api/payments/settings', async (req, res) => {
         upi_enabled = ?,
         card_enabled = ?,
         updated_at = ?
-      WHERE id = "default"
+      WHERE id = ?
     `, [
+      tenantId,
       razorpay_enabled !== undefined ? (razorpay_enabled ? 1 : 0) : (existing?.razorpay_enabled ?? 0),
       razorpay_test_mode !== undefined ? (razorpay_test_mode ? 1 : 0) : (existing?.razorpay_test_mode ?? 1),
       razorpay_key_id !== undefined ? razorpay_key_id : (existing?.razorpay_key_id || ''),
       finalSecret,
       finalWebhook,
-      store_upi_id !== undefined ? store_upi_id : (existing?.store_upi_id || ''),
-      store_upi_name !== undefined ? store_upi_name : (existing?.store_upi_name || ''),
+      targetUpi,
+      targetUpi,
+      targetUpiName,
+      targetUpiName,
       store_upi_qr_url !== undefined ? store_upi_qr_url : (existing?.store_upi_qr_url || ''),
       cod_enabled !== undefined ? (cod_enabled ? 1 : 0) : (existing?.cod_enabled ?? 1),
       cod_min_order !== undefined ? Number(cod_min_order) : (existing?.cod_min_order ?? 100),
@@ -3275,14 +3684,30 @@ app.put('/api/payments/settings', async (req, res) => {
       cash_enabled !== undefined ? (cash_enabled ? 1 : 0) : (existing?.cash_enabled ?? 1),
       upi_enabled !== undefined ? (upi_enabled ? 1 : 0) : (existing?.upi_enabled ?? 1),
       card_enabled !== undefined ? (card_enabled ? 1 : 0) : (existing?.card_enabled ?? 0),
-      now
+      now,
+      settingId
     ]);
 
-    broadcastEvent('payment_settings_updated', { updated_at: now });
+    // Synchronize stores and tenants table for this tenant
+    if (targetUpi !== undefined) {
+      await execute('UPDATE stores SET upi_id = ?, updated_at = ? WHERE id = ?', [targetUpi, now, tenantId]).catch(() => {});
+      await execute('UPDATE tenants SET upi_id = ?, updated_at = ? WHERE id = ? OR slug = ?', [targetUpi, now, tenantId, tenantId]).catch(() => {});
+    }
 
-    res.json({ success: true, message: 'Payment settings updated successfully' });
+    broadcastEvent('payment_settings_updated', { updated_at: now, upi_id: targetUpi, store_upi_id: targetUpi }, tenantId);
+
+    res.json({
+      success: true,
+      message: 'Payment settings updated successfully',
+      data: {
+        store_upi_id: targetUpi,
+        upi_id: targetUpi,
+        store_upi_name: targetUpiName,
+        upi_store_name: targetUpiName
+      }
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

@@ -490,14 +490,18 @@ export async function executeBulkImport(validatedRows, tenantId, mode = 'CREATE_
             name = ?, category_id = ?, brand = ?, barcode = ?, sku = ?, unit = ?, is_loose = ?,
             purchase_cost = ?, selling_price = ?, mrp = ?, wholesale_price = ?, min_selling_price = ?,
             pos_price = ?, website_price = ?, gst_percent = ?, min_stock = ?, max_stock = ?,
-            reorder_level = ?, supplier = ?, hsn_sac = ?, description = ?, is_active = ?, updated_at = ?
+            reorder_level = ?, supplier = ?, hsn_sac = ?, description = ?, is_active = ?,
+            is_pos_available = ?, is_visible_online = ?, updated_at = ?
           WHERE id = ?
         `, [
           r.name, categoryId, r.brand || '', barcode, sku, r.unit, isLoose,
           r.purchasePrice, r.sellingPrice, mrp, r.wholesalePrice, r.purchasePrice,
           r.sellingPrice, r.sellingPrice, r.taxPercent, r.minStock, r.maxStock,
           r.reorderLevel, r.supplier || '', r.hsnSac || '', r.description || '',
-          r.status === 'INACTIVE' ? 0 : 1, now, existing.id
+          r.status === 'INACTIVE' ? 0 : 1,
+          r.status === 'INACTIVE' ? 0 : 1,
+          r.status === 'INACTIVE' ? 0 : 1,
+          now, existing.id
         ]);
 
         // Record price history if changed

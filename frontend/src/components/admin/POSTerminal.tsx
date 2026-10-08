@@ -27,7 +27,12 @@ import {
   Send,
   AlertCircle,
   Sparkles,
-  Link2
+  Link2,
+  FileText,
+  History,
+  Pause,
+  Play,
+  Clock
 } from 'lucide-react';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { NewProductDetectedModal } from './NewProductDetectedModal';
@@ -79,17 +84,23 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
     return [];
   });
 
-  // Automatically persist draft cart to localStorage so items never vanish
+  // Listen to mobile header cart button click
   useEffect(() => {
-    try {
-      const storageKey = `pos_cart_${store?.id || 'default'}`;
-      if (cart.length > 0) {
-        localStorage.setItem(storageKey, JSON.stringify(cart));
-      } else {
-        localStorage.removeItem(storageKey);
-      }
-    } catch (e) {}
-  }, [cart, store?.id]);
+    const handleOpenCart = () => {
+      setMobilePosTab('billing');
+    };
+    window.addEventListener('pos_open_cart', handleOpenCart);
+    return () => window.removeEventListener('pos_open_cart', handleOpenCart);
+  }, []);
+
+  // Listen to mobile header cart button click
+  useEffect(() => {
+    const handleOpenCart = () => {
+      setMobilePosTab('billing');
+    };
+    window.addEventListener('pos_open_cart', handleOpenCart);
+    return () => window.removeEventListener('pos_open_cart', handleOpenCart);
+  }, []);
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -133,6 +144,281 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
   const [unknownBarcodePrompt, setUnknownBarcodePrompt] = useState<{ barcode: string } | null>(null);
   const [networkError, setNetworkError] = useState<string | null>(null);
   const [stockWarning, setStockWarning] = useState<string | null>(null);
+
+  // Active editing order mode (when customer missed an item or needs bill revision)
+  const [editingOrder, setEditingOrder] = useState<{
+    id: string;
+    order_number: string;
+    invoice_number: string;
+    customer_name: string;
+    customer_phone?: string;
+    original_total: number;
+    payment_method: string;
+  } | null>(null);
+
+  // Saved Orders / Recent Bills Modal State
+  const [isSavedOrdersModalOpen, setIsSavedOrdersModalOpen] = useState(false);
+  const [savedOrdersTab, setSavedOrdersTab] = useState<'recent' | 'held'>('recent');
+  const [recentBills, setRecentBills] = useState<any[]>([]);
+  const [recentBillsSearch, setRecentBillsSearch] = useState('');
+  const [isLoadingRecentBills, setIsLoadingRecentBills] = useState(false);
+  const [heldOrders, setHeldOrders] = useState<Array<{
+    id: string;
+    saved_at: string;
+    customer_name: string;
+    customer_phone: string;
+    items_count: number;
+    total_amount: number;
+    cart: PosCartItem[];
+  }>>(() => {
+    try {
+      const saved = localStorage.getItem(`pos_held_orders_${store?.id || 'default'}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const saveHeldOrdersToStorage = (updated: typeof heldOrders) => {
+    setHeldOrders(updated);
+    try {
+      localStorage.setItem(`pos_held_orders_${store?.id || 'default'}`, JSON.stringify(updated));
+    } catch (e) {}
+  };
+
+  const handleHoldCurrentCart = () => {
+    if (cart.length === 0) {
+      alert('Cart is empty. Nothing to hold.');
+      return;
+    }
+    const newHeld = [
+      ...heldOrders,
+      {
+        id: 'hold_' + Date.now(),
+        saved_at: new Date().toISOString(),
+        customer_name: customerName || 'Walk-in Customer',
+        customer_phone: customerPhone || '',
+        items_count: cart.length,
+        total_amount: grandTotal,
+        cart: [...cart]
+      }
+    ];
+    saveHeldOrdersToStorage(newHeld);
+    clearCart();
+    setCustomerName('');
+    setCustomerPhone('');
+    setSelectedCustomer(null);
+    setLastScannedFeedback(`⏸️ Order placed on hold (${newHeld.length} held)`);
+    setTimeout(() => setLastScannedFeedback(null), 3000);
+  };
+
+  const handleResumeHeldCart = (held: typeof heldOrders[0]) => {
+    setCart(held.cart);
+    setCustomerName(held.customer_name);
+    setCustomerPhone(held.customer_phone);
+    const updated = heldOrders.filter(h => h.id !== held.id);
+    saveHeldOrdersToStorage(updated);
+    setIsSavedOrdersModalOpen(false);
+    setMobilePosTab('billing');
+    setLastScannedFeedback(`▶️ Resumed held order for ${held.customer_name}`);
+    setTimeout(() => setLastScannedFeedback(null), 3000);
+  };
+
+  const handleDeleteHeldCart = (heldId: string) => {
+    const updated = heldOrders.filter(h => h.id !== heldId);
+    saveHeldOrdersToStorage(updated);
+  };
+
+  const fetchRecentBills = async () => {
+    setIsLoadingRecentBills(true);
+    try {
+      const orders = await api.getOrders({ type: 'POS', limit: 30 });
+      setRecentBills(orders);
+    } catch (err) {
+      console.error('Failed to load recent POS bills:', err);
+    } finally {
+      setIsLoadingRecentBills(false);
+    }
+  };
+
+  const handleOpenSavedOrdersModal = () => {
+    setIsSavedOrdersModalOpen(true);
+    fetchRecentBills();
+  };
+
+  const handleLoadOrderForEdit = (order: any) => {
+    if (!order.items || order.items.length === 0) {
+      alert('This order contains no line items to revise.');
+      return;
+    }
+
+    const loadedCart: PosCartItem[] = order.items.map((it: any) => {
+      const matchingProd = products.find(p => p.id === it.product_id) || {
+        id: it.product_id,
+        name: it.product_name,
+        selling_price: it.unit_price,
+        unit: it.unit || 'PACKET',
+        is_loose: it.unit === 'KG' || it.unit === 'GRAM' ? 1 : 0,
+        purchase_cost: it.cost_price || 0,
+        gst_percent: it.gst_percent || 0,
+        stock: 50,
+        is_active: 1,
+        is_pos_available: 1,
+        is_visible_online: 1,
+      } as Product;
+
+      return {
+        product: matchingProd,
+        quantity: Number(it.quantity) || 1,
+        unit: it.unit || matchingProd.unit,
+        original_price: Number(it.original_unit_price || it.unit_price || matchingProd.selling_price),
+        unit_price: Number(it.unit_price || matchingProd.selling_price),
+        discount_type: it.discount_type || 'FLAT',
+        discount_value: Number(it.discount_value) || 0,
+        discount_amount: Number(it.discount_amount) || 0,
+        total_price: Number(it.total_price) || Math.round(Number(it.quantity) * Number(it.unit_price) * 100) / 100
+      };
+    });
+
+    setCart(loadedCart);
+    setCustomerName(order.customer_name || '');
+    setCustomerPhone(order.customer_phone === 'N/A' ? '' : (order.customer_phone || ''));
+    setPaymentMethod(order.payment_method || 'CASH');
+    setEditingOrder({
+      id: order.id,
+      order_number: order.order_number,
+      invoice_number: order.invoice_number,
+      customer_name: order.customer_name || 'Walk-in Customer',
+      customer_phone: order.customer_phone,
+      original_total: Number(order.total_amount) || 0,
+      payment_method: order.payment_method || 'CASH'
+    });
+
+    setIsSavedOrdersModalOpen(false);
+    setMobilePosTab('billing');
+    setLastScannedFeedback(`✏️ Editing Bill #${order.invoice_number} — Add missed items`);
+    setTimeout(() => setLastScannedFeedback(null), 4000);
+  };
+
+  const handleCancelEditOrder = () => {
+    setEditingOrder(null);
+    clearCart();
+    setCustomerName('');
+    setCustomerPhone('');
+    setSelectedCustomer(null);
+    setLastScannedFeedback('Order editing cancelled');
+    setTimeout(() => setLastScannedFeedback(null), 2500);
+  };
+
+  const handleUpdateBill = async () => {
+    if (!editingOrder) return;
+    if (cart.length === 0) {
+      alert('Cart is empty. Please add items to update the bill.');
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const finalCust = selectedCustomer || (customerPhone.trim() ? { name: customerName.trim() || 'Valued Customer', phone: customerPhone.trim() } : null);
+
+      const payload = {
+        items: cart.map(it => ({
+          product_id: it.product.id,
+          product_name: it.product.name,
+          unit: it.unit,
+          quantity: it.quantity,
+          original_price: it.original_price,
+          unit_price: it.unit_price,
+          discount_type: it.discount_type || 'FLAT',
+          discount_value: it.discount_value || 0,
+          discount_amount: it.discount_amount || 0,
+          discount_reason: it.discount_reason || null,
+          cost_price: it.product.purchase_cost,
+          gst_percent: it.product.gst_percent,
+        })),
+        customer: finalCust,
+        discount: cartDiscountAmount,
+        payment_method: paymentMethod,
+        cashier_name: 'POS Cashier 1',
+        notes: `Revised Bill with missed items added. Cash tendered: ₹${cashTendered || grandTotal}`
+      };
+
+      const result = await api.updatePosOrder(editingOrder.id, payload);
+
+      const updatedReceipt: ReceiptData = {
+        store_name: store?.name || 'Digi8 Kirana Store',
+        store_tagline: store?.tagline || '',
+        address: store?.address || '',
+        phone: store?.phone || '',
+        gstin: store?.gstin || '',
+        invoice_no: `${result.invoice_number} (Updated)`,
+        order_no: result.order_number,
+        date_time: new Date().toLocaleString('en-IN'),
+        cashier: 'POS Cashier 1',
+        customer_name: finalCust?.name || editingOrder.customer_name || 'Walk-in Customer',
+        customer_phone: finalCust?.phone || editingOrder.customer_phone || '',
+        items: cart.map(it => ({
+          name: it.product.name,
+          qty: it.quantity,
+          unit: it.unit,
+          rate: it.original_price,
+          discount: it.discount_amount || 0,
+          amount: it.total_price,
+        })),
+        subtotal: grossSubtotal,
+        discount: totalSavings,
+        total: result.total_amount,
+        payment_method: paymentMethod,
+        upi_id: store?.upi_id || 'royalkirana@upi',
+        footer_text: 'Thank you! Revised bill with missed items added.',
+      };
+
+      onOpenReceipt(updatedReceipt);
+      setEditingOrder(null);
+      clearCart();
+      setCustomerName('');
+      setCustomerPhone('');
+      setSelectedCustomer(null);
+      setMobilePosTab('catalog');
+      onRefreshData();
+      alert(`✓ Bill #${result.invoice_number} successfully updated! Missed items added, stock synchronized, and updated bill generated.`);
+    } catch (err: any) {
+      alert('Error updating bill: ' + (err.message || err));
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleReprintReceipt = (order: any) => {
+    const receipt: ReceiptData = {
+      store_name: store?.name || 'Digi8 Kirana Store',
+      store_tagline: store?.tagline || '',
+      address: store?.address || '',
+      phone: store?.phone || '',
+      gstin: store?.gstin || '',
+      invoice_no: order.invoice_number,
+      order_no: order.order_number,
+      date_time: new Date(order.created_at).toLocaleString('en-IN'),
+      cashier: 'POS Cashier 1',
+      customer_name: order.customer_name || 'Walk-in Customer',
+      customer_phone: order.customer_phone || '',
+      items: (order.items || []).map((it: any) => ({
+        name: it.product_name,
+        qty: Number(it.quantity),
+        unit: it.unit || 'PACKET',
+        rate: Number(it.original_unit_price || it.unit_price),
+        discount: Number(it.discount_amount || 0),
+        amount: Number(it.total_price),
+      })),
+      subtotal: Number(order.subtotal || order.total_amount),
+      discount: Number(order.discount || 0),
+      total: Number(order.total_amount),
+      payment_method: order.payment_method || 'CASH',
+      upi_id: store?.upi_id || 'royalkirana@upi',
+      footer_text: 'Thank you for shopping at ' + (store?.name || 'our store'),
+    };
+    onOpenReceipt(receipt);
+  };
 
   useEffect(() => {
     if (barcodeScanner && typeof barcodeScanner.onStatusChange === 'function') {
@@ -493,6 +779,27 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
   const tenderedNum = parseFloat(cashTendered) || 0;
   const changeDue = Math.max(0, tenderedNum - grandTotal);
 
+  // Automatically persist draft cart to localStorage and broadcast real-time count
+  useEffect(() => {
+    try {
+      const storageKey = `pos_cart_${store?.id || 'default'}`;
+      if (cart.length > 0) {
+        localStorage.setItem(storageKey, JSON.stringify(cart));
+      } else {
+        localStorage.removeItem(storageKey);
+      }
+    } catch (e) {}
+
+    const totalQty = cart.reduce((sum, it) => sum + (it.product.is_loose || it.unit === 'KG' ? 1 : Math.round(it.quantity)), 0);
+    window.dispatchEvent(new CustomEvent('pos_cart_updated', {
+      detail: {
+        uniqueCount: cart.length,
+        totalQuantity: totalQty,
+        grandTotal
+      }
+    }));
+  }, [cart, grandTotal, store?.id]);
+
   // Complete POS Transaction & Print
   const handleCompleteSale = async () => {
     if (cart.length === 0) {
@@ -634,7 +941,9 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
     const brandMatch = Boolean(p.brand && String(p.brand).toLowerCase().includes(s));
     const matchesSearch = !s || nameMatch || barcodeMatch || brandMatch;
     const matchesCat = selectedCategory === '' || p.category_id === selectedCategory;
-    return matchesSearch && matchesCat && Boolean(p.is_pos_available) && Boolean(p.is_active);
+    const isAvailableInPos = p.is_pos_available === undefined || p.is_pos_available === null || Number(p.is_pos_available) === 1 || p.is_pos_available === true;
+    const isActive = p.is_active === undefined || p.is_active === null || Number(p.is_active) === 1 || p.is_active === true || (p as any).status === 'ACTIVE';
+    return matchesSearch && matchesCat && isAvailableInPos && isActive;
   });
 
   return (
@@ -818,6 +1127,39 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
             </span>
           </div>
 
+          {/* Saved Orders & Recent Bills Trigger */}
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={handleOpenSavedOrdersModal}
+            title="View saved held carts and recent completed bills to add missed items or reprint"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: '#f8fafc',
+              borderColor: '#cbd5e1',
+              fontWeight: 600,
+              fontSize: '0.8rem',
+              color: '#334155'
+            }}
+          >
+            <History size={15} color="var(--primary-600)" />
+            <span>{language === 'te' ? 'సేవ్ చేసిన బిల్లులు' : 'Saved & Recent Bills'}</span>
+            {heldOrders.length > 0 && (
+              <span style={{
+                background: '#f59e0b',
+                color: 'white',
+                fontSize: '0.7rem',
+                fontWeight: 800,
+                padding: '1px 6px',
+                borderRadius: '10px'
+              }}>
+                {heldOrders.length}
+              </span>
+            )}
+          </button>
+
           {/* Offline Sync Status */}
           {offlineQueueCount > 0 && (
             <button
@@ -852,27 +1194,80 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
           ))}
         </div>
 
-        {/* Touch Tiles Grid */}
+        {/* Touch Tiles Grid with Visual Selected States & Direct Quantity Controls */}
         <div className="pos-grid-items">
           {filteredProducts.map(p => {
             const isLoose = p.is_loose || p.unit === 'KG';
+            const cartItem = cart.find(it => it.product.id === p.id);
+            const isSelected = Boolean(cartItem && cartItem.quantity > 0);
+            const selectedQty = cartItem ? cartItem.quantity : 0;
+            const step = isLoose ? 0.250 : 1;
+
             return (
               <div
                 key={p.id}
-                className="pos-item-tile"
+                className={`pos-item-tile ${isSelected ? 'selected' : ''}`}
                 onClick={() => {
                   if (isLoose) openScaleModal(p);
                   else addToCart(p, 1);
                 }}
               >
+                {/* Visual selected indicator with checkmark */}
+                {isSelected && (
+                  <div className="pos-tile-selected-badge">
+                    <span>✓</span>
+                    <span>{isLoose ? `${selectedQty.toFixed(2)} KG` : `${selectedQty} in Cart`}</span>
+                  </div>
+                )}
+
                 <img src={p.photo_url} alt={p.name} className="pos-tile-img" />
-                <div className="pos-tile-name">{p.name}</div>
+                <div className="pos-tile-name" title={p.name}>{p.name}</div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                   {isLoose ? 'Per KG (Loose)' : `1 ${p.unit}`}
                 </div>
                 <div className="pos-tile-price">
                   ₹{p.selling_price}
                 </div>
+
+                {/* Direct Stepper when selected or Add button when unselected */}
+                {isSelected ? (
+                  <div className="pos-tile-stepper" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      className="pos-stepper-btn minus"
+                      onClick={() => updateCartItemQty(p.id, selectedQty - step)}
+                      aria-label={`Decrease ${p.name}`}
+                    >
+                      -
+                    </button>
+                    <span className="pos-stepper-qty">
+                      {isLoose ? selectedQty.toFixed(2) : selectedQty}
+                    </span>
+                    <button
+                      type="button"
+                      className="pos-stepper-btn plus"
+                      onClick={() => {
+                        if (isLoose) openScaleModal(p);
+                        else addToCart(p, 1);
+                      }}
+                      aria-label={`Increase ${p.name}`}
+                    >
+                      +
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="pos-tile-add-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isLoose) openScaleModal(p);
+                      else addToCart(p, 1);
+                    }}
+                  >
+                    + Add
+                  </button>
+                )}
               </div>
             );
           })}
@@ -882,16 +1277,18 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
         {cart.length > 0 && (
           <div className="pos-mobile-zepto-bar">
             <div className="pos-zepto-summary">
-              <span className="pos-zepto-badge">🛒 {cart.length} ITEMS (₹{grandTotal.toFixed(2)})</span>
+              <span className="pos-zepto-badge">
+                🛒 {cart.length} {cart.length === 1 ? 'Product' : 'Products'} • {cart.reduce((s, i) => s + (i.product.is_loose || i.unit === 'KG' ? 1 : Math.round(i.quantity)), 0)} {cart.reduce((s, i) => s + (i.product.is_loose || i.unit === 'KG' ? 1 : Math.round(i.quantity)), 0) === 1 ? 'Unit' : 'Units'}
+              </span>
               <span className="pos-zepto-price">₹{grandTotal.toFixed(2)}</span>
-              <span className="pos-zepto-sub">Tap to review & proceed to pay</span>
+              <span className="pos-zepto-sub">Tap to review cart & checkout</span>
             </div>
             <button
               type="button"
               className="btn btn-primary pos-zepto-pay-btn"
               onClick={() => setMobilePosTab('billing')}
             >
-              Pay / Bill →
+              VIEW CART →
             </button>
           </div>
         )}
@@ -916,16 +1313,60 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
             <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>({cart.length} items)</span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {cart.length > 0 && !editingOrder && (
+              <button
+                type="button"
+                className="btn-sm btn-secondary"
+                style={{ background: 'rgba(255,255,255,0.2)', color: 'white', borderColor: 'transparent', display: 'flex', alignItems: 'center', gap: '4px' }}
+                onClick={handleHoldCurrentCart}
+                title="Hold current cart to bill another customer"
+              >
+                <Pause size={13} /> {language === 'te' ? 'హోల్డ్' : 'Hold'}
+              </button>
+            )}
             <button
               className="btn-sm btn-secondary"
               style={{ background: 'rgba(255,255,255,0.15)', color: 'white', borderColor: 'transparent' }}
-              onClick={clearCart}
+              onClick={editingOrder ? handleCancelEditOrder : clearCart}
             >
-              Clear
+              {editingOrder ? 'Cancel' : 'Clear'}
             </button>
           </div>
         </div>
+
+        {/* REVISION MODE BANNER */}
+        {editingOrder && (
+          <div style={{
+            background: '#fef3c7',
+            borderBottom: '2px solid #f59e0b',
+            padding: '10px 14px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '6px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 800, color: '#92400e', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.875rem' }}>
+                <Edit3 size={16} /> REVISING BILL #{editingOrder.invoice_number}
+              </span>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ padding: '2px 8px', fontSize: '0.75rem', height: '24px', background: 'white' }}
+                onClick={handleCancelEditOrder}
+              >
+                ✕ Cancel Revision
+              </button>
+            </div>
+            <div style={{ fontSize: '0.8rem', color: '#78350f' }}>
+              Add missed products from catalog or scanner. When finished, click <strong>"UPDATE & RE-PRINT BILL"</strong> to reconcile stock and reprint.
+            </div>
+            <div style={{ fontSize: '0.75rem', color: '#92400e', display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+              <span>Customer: {editingOrder.customer_name}</span>
+              <span>Original Total: ₹{editingOrder.original_total.toFixed(2)}</span>
+            </div>
+          </div>
+        )}
 
         {/* PHASE 6: CUSTOMER NAME & MOBILE NUMBER CAPTURE (TENANT ISOLATED) */}
         <div style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '10px 14px' }}>
@@ -1256,16 +1697,23 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
         {/* Final Action Button: Bill & Thermal Print */}
         <div style={{ padding: '12px 20px', background: 'white' }}>
           <button
-            className="btn btn-primary btn-lg"
-            style={{ width: '100%', gap: '10px' }}
+            className={`btn ${editingOrder ? 'btn-accent' : 'btn-primary'} btn-lg`}
+            style={{
+              width: '100%',
+              gap: '10px',
+              background: editingOrder ? '#059669' : undefined,
+              borderColor: editingOrder ? '#047857' : undefined
+            }}
             disabled={cart.length === 0 || isProcessing}
-            onClick={handleCompleteSale}
+            onClick={editingOrder ? handleUpdateBill : handleCompleteSale}
           >
             <Printer size={20} />
             <span>
               {isProcessing 
-                ? (language === 'te' ? 'బిల్లింగ్ అవుతోంది...' : 'BILLING...') 
-                : (language === 'te' ? `రశీదు ప్రింట్ చేయండి (₹${grandTotal.toFixed(2)})` : `PRINT BILL (₹${grandTotal.toFixed(2)})`)}
+                ? (language === 'te' ? 'ప్రాసెస్ అవుతోంది...' : 'PROCESSING...') 
+                : editingOrder
+                  ? `UPDATE & RE-PRINT BILL (₹${grandTotal.toFixed(2)})`
+                  : (language === 'te' ? `రశీదు ప్రింట్ చేయండి (₹${grandTotal.toFixed(2)})` : `PRINT BILL (₹${grandTotal.toFixed(2)})`)}
             </span>
           </button>
         </div>
@@ -1601,6 +2049,276 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
             setIsCameraScannerOpen(true);
           }}
         />
+      )}
+
+      {/* SAVED CARTS & RECENT BILLS MODAL */}
+      {isSavedOrdersModalOpen && (
+        <div className="modal-backdrop" onClick={() => setIsSavedOrdersModalOpen(false)}>
+          <div
+            className="modal-card"
+            style={{ maxWidth: '850px', width: '95%', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header" style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <History size={22} color="var(--primary-700)" />
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.15rem' }}>Saved Carts & Recent Bills</h3>
+                  <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
+                    Revise existing bills to add missed products, or resume held customer carts
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn-icon btn-secondary"
+                onClick={() => setIsSavedOrdersModalOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Tabs */}
+            <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', background: '#f8fafc', padding: '0 20px' }}>
+              <button
+                type="button"
+                onClick={() => setSavedOrdersTab('recent')}
+                style={{
+                  padding: '12px 18px',
+                  fontSize: '0.875rem',
+                  fontWeight: 700,
+                  border: 'none',
+                  background: 'none',
+                  cursor: 'pointer',
+                  borderBottom: savedOrdersTab === 'recent' ? '3px solid var(--primary-600)' : '3px solid transparent',
+                  color: savedOrdersTab === 'recent' ? 'var(--primary-700)' : '#64748b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                <FileText size={16} /> Recent Completed Bills ({recentBills.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSavedOrdersTab('held')}
+                style={{
+                  padding: '12px 18px',
+                  fontSize: '0.875rem',
+                  fontWeight: 700,
+                  border: 'none',
+                  background: 'none',
+                  cursor: 'pointer',
+                  borderBottom: savedOrdersTab === 'held' ? '3px solid var(--primary-600)' : '3px solid transparent',
+                  color: savedOrdersTab === 'held' ? 'var(--primary-700)' : '#64748b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                <Pause size={16} /> Held Draft Carts ({heldOrders.length})
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
+              {savedOrdersTab === 'recent' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', gap: '10px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', background: 'white', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '6px 12px', flex: 1, minWidth: '220px' }}>
+                      <Search size={16} color="#64748b" />
+                      <input
+                        type="text"
+                        placeholder="Search by invoice # or customer..."
+                        value={recentBillsSearch}
+                        onChange={(e) => setRecentBillsSearch(e.target.value)}
+                        style={{ border: 'none', width: '100%', marginLeft: '8px', fontSize: '0.85rem', outline: 'none' }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={fetchRecentBills}
+                      disabled={isLoadingRecentBills}
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <RefreshCw size={13} className={isLoadingRecentBills ? 'spin' : ''} />
+                      Refresh Bills
+                    </button>
+                  </div>
+
+                  {isLoadingRecentBills ? (
+                    <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
+                      <RefreshCw size={24} className="spin" style={{ margin: '0 auto 10px' }} />
+                      <p>Loading recent bills...</p>
+                    </div>
+                  ) : recentBills.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                      <FileText size={40} style={{ margin: '0 auto 10px', opacity: 0.4 }} />
+                      <p>No POS bills found.</p>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {recentBills
+                        .filter(o => {
+                          const s = recentBillsSearch.toLowerCase();
+                          return !s ||
+                            String(o.invoice_number || '').toLowerCase().includes(s) ||
+                            String(o.order_number || '').toLowerCase().includes(s) ||
+                            String(o.customer_name || '').toLowerCase().includes(s) ||
+                            String(o.customer_phone || '').toLowerCase().includes(s);
+                        })
+                        .map(order => (
+                          <div
+                            key={order.id}
+                            style={{
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '8px',
+                              padding: '12px 16px',
+                              background: '#fff',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              gap: '12px',
+                              flexWrap: 'wrap'
+                            }}
+                          >
+                            <div style={{ flex: '1 1 280px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                <span style={{ fontWeight: 800, color: 'var(--primary-700)', fontSize: '0.95rem' }}>
+                                  #{order.invoice_number}
+                                </span>
+                                <span style={{ fontSize: '0.75rem', background: '#e0f2fe', color: '#0369a1', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                                  {order.payment_method || 'CASH'}
+                                </span>
+                                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                  {new Date(order.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '0.85rem', color: '#334155' }}>
+                                <strong>{order.customer_name || 'Walk-in Customer'}</strong>
+                                {order.customer_phone && order.customer_phone !== 'N/A' && ` • ${order.customer_phone}`}
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
+                                {order.items ? `${order.items.length} items (${order.items.map((i: any) => i.product_name).slice(0, 3).join(', ')}${order.items.length > 3 ? '...' : ''})` : 'Items billed'}
+                              </div>
+                            </div>
+
+                            <div style={{ textAlign: 'right', minWidth: '110px' }}>
+                              <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>
+                                ₹{Number(order.total_amount || 0).toFixed(2)}
+                              </div>
+                              <span style={{ fontSize: '0.75rem', color: '#16a34a', fontWeight: 700 }}>
+                                ✓ {order.payment_status || 'PAID'}
+                              </span>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                              <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                onClick={() => handleLoadOrderForEdit(order)}
+                                style={{ display: 'flex', alignItems: 'center', gap: '5px', background: '#0284c7', borderColor: '#0284c7' }}
+                                title="Add missed products to this bill and print revised invoice"
+                              >
+                                <Edit3 size={14} /> Add Missed Items
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => handleReprintReceipt(order)}
+                                style={{ display: 'flex', alignItems: 'center', gap: '5px' }}
+                                title="Re-print thermal bill"
+                              >
+                                <Printer size={14} /> Print Bill
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {savedOrdersTab === 'held' && (
+                <div>
+                  {heldOrders.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                      <Pause size={40} style={{ margin: '0 auto 10px', opacity: 0.4 }} />
+                      <p>No carts currently on hold.</p>
+                      <p style={{ fontSize: '0.8rem', color: '#cbd5e1' }}>
+                        Click "Hold" in the billing cart anytime a customer leaves the counter to pick up more items.
+                      </p>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {heldOrders.map((held) => (
+                        <div
+                          key={held.id}
+                          style={{
+                            border: '1px solid #fde68a',
+                            borderRadius: '8px',
+                            padding: '12px 16px',
+                            background: '#fffbeb',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: '12px',
+                            flexWrap: 'wrap'
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: 700, color: '#92400e', fontSize: '0.9rem' }}>
+                              Customer: {held.customer_name} {held.customer_phone ? `(${held.customer_phone})` : ''}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: '#b45309' }}>
+                              Held at: {new Date(held.saved_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} • {held.items_count} items
+                            </div>
+                          </div>
+
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#78350f' }}>
+                              ₹{held.total_amount.toFixed(2)}
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
+                              type="button"
+                              className="btn btn-primary btn-sm"
+                              onClick={() => handleResumeHeldCart(held)}
+                              style={{ display: 'flex', alignItems: 'center', gap: '5px' }}
+                            >
+                              <Play size={14} /> Resume Billing
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => handleDeleteHeldCart(held.id)}
+                              style={{ color: '#dc2626' }}
+                            >
+                              <Trash2 size={14} /> Discard
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="modal-footer" style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', background: '#f8fafc' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setIsSavedOrdersModalOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

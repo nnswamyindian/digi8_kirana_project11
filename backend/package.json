@@ -14,9 +14,11 @@
     "test:logins": "node test_all_logins.js"
   },
   "dependencies": {
+    "better-sqlite3": "^13.0.3",
     "cors": "^2.8.6",
     "dotenv": "^18.0.5",
     "express": "^5.2.1",
+    "multer": "^2.4.0",
     "mysql2": "^3.24.4",
     "qrcode": "^1.5.4",
     "xlsx": "^0.18.5"

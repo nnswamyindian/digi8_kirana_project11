@@ -188,12 +188,15 @@ export const DeliveryBoyPortal: React.FC<DeliveryBoyPortalProps> = ({
   };
 
   // Open Doorstep Payment Modal
-  const openPaymentModal = (order: Order) => {
+  const openPaymentModal = (order: Order, defaultMethod: 'CASH' | 'UPI' = 'CASH') => {
     setPaymentModalOrder(order);
-    setPaymentMethodTab(order.payment_method === 'UPI' ? 'UPI' : 'CASH');
+    setPaymentMethodTab(defaultMethod);
     setCashTendered(order.total_amount ? String(order.total_amount) : '');
     setPaymentNotes('');
     setDynamicQRData(null);
+    if (defaultMethod === 'UPI') {
+      handleLoadDynamicQR(order);
+    }
   };
 
   // Load Dynamic UPI QR Code
@@ -209,8 +212,24 @@ export const DeliveryBoyPortal: React.FC<DeliveryBoyPortalProps> = ({
     }
   };
 
+  // Quick 1-click Mark as Paid for riders
+  const handleQuickMarkPaid = async (order: Order, method: 'CASH' | 'UPI' = 'UPI') => {
+    try {
+      await api.markOrderPaid(order.id, {
+        payment_method: method,
+        paid_by: currentUser.name,
+        amount: order.total_amount,
+        notes: `Doorstep ${method} payment verified by delivery partner`
+      });
+      await loadDeliveries();
+      await loadCashSummary();
+    } catch (err: any) {
+      alert('Failed to mark payment as PAID: ' + err.message);
+    }
+  };
+
   // Confirm Doorstep Cash Collection
-  const handleConfirmCashCollection = async () => {
+  const handleConfirmCashCollection = async (andMarkDelivered: boolean = false) => {
     if (!paymentModalOrder) return;
     const tendered = Number(cashTendered);
     const orderTotal = Number(paymentModalOrder.total_amount);
@@ -246,7 +265,11 @@ export const DeliveryBoyPortal: React.FC<DeliveryBoyPortalProps> = ({
         notes: paymentNotes || 'Collected at doorstep by delivery partner'
       });
 
-      alert(`✓ ${res.message}`);
+      if (andMarkDelivered) {
+        await api.updateOrderStatus(paymentModalOrder.id, 'DELIVERED');
+      }
+
+      alert(`✓ ${res.message}${andMarkDelivered ? ' Order marked DELIVERED.' : ''}`);
       setPaymentModalOrder(null);
       await loadDeliveries();
       await loadCashSummary();
@@ -258,7 +281,7 @@ export const DeliveryBoyPortal: React.FC<DeliveryBoyPortalProps> = ({
   };
 
   // Confirm UPI / QR received
-  const handleConfirmUPIPayment = async () => {
+  const handleConfirmUPIPayment = async (andMarkDelivered: boolean = false) => {
     if (!paymentModalOrder) return;
     setIsProcessingPayment(true);
     try {
@@ -268,7 +291,10 @@ export const DeliveryBoyPortal: React.FC<DeliveryBoyPortalProps> = ({
         amount: paymentModalOrder.total_amount,
         notes: 'Doorstep UPI payment verified by delivery partner'
       });
-      alert(`✓ UPI payment of ₹${paymentModalOrder.total_amount} verified & recorded.`);
+      if (andMarkDelivered) {
+        await api.updateOrderStatus(paymentModalOrder.id, 'DELIVERED');
+      }
+      alert(`✓ UPI payment of ₹${paymentModalOrder.total_amount} verified & recorded.${andMarkDelivered ? ' Order marked DELIVERED.' : ''}`);
       setPaymentModalOrder(null);
       await loadDeliveries();
       await loadCashSummary();
@@ -284,18 +310,20 @@ export const DeliveryBoyPortal: React.FC<DeliveryBoyPortalProps> = ({
     // Check payment status
     if (order.payment_status !== 'PAID') {
       const proceed = window.confirm(
-        `⚠️ Payment for this order is still PENDING (₹${Number(order.total_amount || 0).toFixed(2)}).\n\nPlease collect the payment before marking delivered.\n\nOpen payment collection screen now?`
+        `⚠️ Payment for Order #${order.order_number} is PENDING (₹${Number(order.total_amount || 0).toFixed(2)}).\n\nClick OK to collect payment (Cash or Dynamic UPI QR).\nClick Cancel to go back.`
       );
       if (proceed) {
-        openPaymentModal(order);
+        openPaymentModal(order, order.payment_method === 'UPI' ? 'UPI' : 'CASH');
       }
       return;
     }
 
-    if (window.confirm(`Mark order #${order.order_number} as DELIVERED to ${order.customer_name}?`)) {
+    try {
       await handleUpdateStatus(order.id, 'DELIVERED');
       await loadDeliveries();
       await loadCashSummary();
+    } catch (err: any) {
+      alert('Failed to update status to DELIVERED: ' + err.message);
     }
   };
 
@@ -714,32 +742,76 @@ export const DeliveryBoyPortal: React.FC<DeliveryBoyPortalProps> = ({
 
                           {isDelivering && (
                             <>
-                              {/* Collect Payment Button (if unpaid) */}
+                              {/* Collect Payment Options (if unpaid) */}
                               {!isPaid && (
-                                <button
-                                  onClick={() => openPaymentModal(order)}
-                                  className="btn btn-sm"
-                                  style={{
-                                    flex: 1.5,
-                                    minWidth: '130px',
-                                    background: '#f59e0b',
-                                    color: 'white',
-                                    border: 'none',
-                                    fontSize: '0.775rem',
-                                    fontWeight: 700
-                                  }}
-                                >
-                                  <Banknote size={14} /> Collect ₹{order.total_amount}
-                                </button>
+                                <>
+                                  <button
+                                    onClick={() => openPaymentModal(order, 'UPI')}
+                                    className="btn btn-sm"
+                                    style={{
+                                      flex: 1,
+                                      minWidth: '95px',
+                                      background: '#2563eb',
+                                      color: 'white',
+                                      border: 'none',
+                                      fontSize: '0.775rem',
+                                      fontWeight: 700,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      gap: '4px'
+                                    }}
+                                    title="Show Dynamic Store UPI QR Code"
+                                  >
+                                    <QrCode size={13} /> UPI QR
+                                  </button>
+
+                                  <button
+                                    onClick={() => openPaymentModal(order, 'CASH')}
+                                    className="btn btn-sm"
+                                    style={{
+                                      flex: 1,
+                                      minWidth: '85px',
+                                      background: '#f59e0b',
+                                      color: 'white',
+                                      border: 'none',
+                                      fontSize: '0.775rem',
+                                      fontWeight: 700,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      gap: '4px'
+                                    }}
+                                    title="Doorstep Cash Collection"
+                                  >
+                                    <Banknote size={13} /> Cash
+                                  </button>
+
+                                  <button
+                                    onClick={() => handleQuickMarkPaid(order, 'UPI')}
+                                    className="btn btn-sm btn-secondary"
+                                    style={{
+                                      color: '#16a34a',
+                                      borderColor: '#bbf7d0',
+                                      background: '#f0fdf4',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 700,
+                                      padding: '4px 8px'
+                                    }}
+                                    title="Quick 1-click mark as paid"
+                                  >
+                                    <Check size={13} /> Paid
+                                  </button>
+                                </>
                               )}
 
                               {/* Complete Delivery Button */}
                               <button
                                 onClick={() => handleMarkDelivered(order)}
                                 className="btn btn-primary btn-sm"
-                                style={{ flex: 2, minWidth: '130px', fontSize: '0.775rem' }}
+                                style={{ flex: 1.5, minWidth: '120px', fontSize: '0.775rem', background: '#10b981', borderColor: '#10b981' }}
                               >
-                                <CheckCircle2 size={14} /> Mark Delivered
+                                <CheckCircle2 size={14} /> Deliver
                               </button>
 
                               {/* Report Delivery Issue Button */}
@@ -759,8 +831,26 @@ export const DeliveryBoyPortal: React.FC<DeliveryBoyPortalProps> = ({
                           )}
 
                           {isDelivered && (
-                            <div style={{ width: '100%', textAlign: 'center', fontSize: '0.775rem', color: '#10b981', fontWeight: 700 }}>
-                              ✓ Delivered Successfully
+                            <div style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                              <span style={{ fontSize: '0.775rem', color: '#10b981', fontWeight: 700 }}>
+                                ✓ Delivered Successfully
+                              </span>
+                              {!isPaid && (
+                                <button
+                                  onClick={() => openPaymentModal(order, 'UPI')}
+                                  className="btn btn-sm"
+                                  style={{
+                                    background: '#f59e0b',
+                                    color: 'white',
+                                    border: 'none',
+                                    fontSize: '0.725rem',
+                                    fontWeight: 700,
+                                    padding: '4px 10px'
+                                  }}
+                                >
+                                  <Banknote size={12} /> Settle Unpaid ₹{order.total_amount}
+                                </button>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1095,18 +1185,36 @@ export const DeliveryBoyPortal: React.FC<DeliveryBoyPortalProps> = ({
                 )}
 
                 <button
-                  onClick={handleConfirmCashCollection}
+                  onClick={() => handleConfirmCashCollection(false)}
                   disabled={isProcessingPayment || Number(cashTendered) < paymentModalOrder.total_amount}
                   className="btn btn-primary"
                   style={{
                     width: '100%',
-                    padding: '12px',
-                    fontSize: '0.95rem',
+                    padding: '11px',
+                    fontSize: '0.9rem',
                     fontWeight: 700,
+                    marginBottom: '8px',
                     opacity: Number(cashTendered) < paymentModalOrder.total_amount ? 0.6 : 1
                   }}
                 >
                   {isProcessingPayment ? 'Recording...' : `Confirm Cash Collection (₹${paymentModalOrder.total_amount})`}
+                </button>
+
+                <button
+                  onClick={() => handleConfirmCashCollection(true)}
+                  disabled={isProcessingPayment || Number(cashTendered) < paymentModalOrder.total_amount}
+                  className="btn btn-primary"
+                  style={{
+                    width: '100%',
+                    padding: '11px',
+                    fontSize: '0.9rem',
+                    fontWeight: 700,
+                    background: '#059669',
+                    borderColor: '#059669',
+                    opacity: Number(cashTendered) < paymentModalOrder.total_amount ? 0.6 : 1
+                  }}
+                >
+                  {isProcessingPayment ? 'Processing...' : '🚀 Confirm Cash & Mark Delivered'}
                 </button>
               </div>
             )}
@@ -1141,12 +1249,21 @@ export const DeliveryBoyPortal: React.FC<DeliveryBoyPortalProps> = ({
                     </div>
 
                     <button
-                      onClick={handleConfirmUPIPayment}
+                      onClick={() => handleConfirmUPIPayment(false)}
                       disabled={isProcessingPayment}
                       className="btn btn-primary"
-                      style={{ width: '100%', padding: '12px', fontSize: '0.95rem' }}
+                      style={{ width: '100%', padding: '11px', fontSize: '0.9rem', marginBottom: '8px' }}
                     >
                       {isProcessingPayment ? 'Verifying...' : '✓ Confirm UPI Payment Received'}
+                    </button>
+
+                    <button
+                      onClick={() => handleConfirmUPIPayment(true)}
+                      disabled={isProcessingPayment}
+                      className="btn btn-primary"
+                      style={{ width: '100%', padding: '11px', fontSize: '0.9rem', background: '#059669', borderColor: '#059669' }}
+                    >
+                      {isProcessingPayment ? 'Processing...' : '🚀 Confirm Payment & Mark Delivered'}
                     </button>
                   </div>
                 ) : (

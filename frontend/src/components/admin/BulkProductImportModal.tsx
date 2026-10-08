@@ -570,22 +570,44 @@ export const BulkProductImportModal: React.FC<BulkProductImportModalProps> = ({
                   width: '64px',
                   height: '64px',
                   borderRadius: '50%',
-                  background: '#dcfce7',
-                  color: '#15803d',
+                  background: (importResult.errorCount === 0) 
+                    ? '#dcfce7' 
+                    : (importResult.createdCount > 0 || importResult.updatedCount > 0) 
+                      ? '#fef3c7' 
+                      : '#fef2f2',
+                  color: (importResult.errorCount === 0) 
+                    ? '#15803d' 
+                    : (importResult.createdCount > 0 || importResult.updatedCount > 0) 
+                      ? '#b45309' 
+                      : '#dc2626',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   margin: '0 auto 16px auto'
                 }}
               >
-                <Check size={32} />
+                {importResult.errorCount === 0 ? (
+                  <Check size={32} />
+                ) : (importResult.createdCount > 0 || importResult.updatedCount > 0) ? (
+                  <AlertTriangle size={32} />
+                ) : (
+                  <XCircle size={32} />
+                )}
               </div>
 
               <h3 style={{ fontSize: '1.3rem', fontWeight: 700, color: '#0f172a', margin: '0 0 8px 0' }}>
-                Bulk Import Completed Successfully!
+                {importResult.errorCount === 0
+                  ? 'Bulk Import Completed Successfully!'
+                  : (importResult.createdCount > 0 || importResult.updatedCount > 0)
+                    ? 'Bulk Import Partially Completed'
+                    : 'Bulk Import Failed'}
               </h3>
               <p style={{ color: '#64748b', fontSize: '0.9rem', margin: '0 0 24px 0' }}>
-                All valid products have been committed transactionally with inventory opening balances.
+                {importResult.errorCount === 0
+                  ? 'All valid products have been committed transactionally with inventory opening balances.'
+                  : (importResult.createdCount > 0 || importResult.updatedCount > 0)
+                    ? `${importResult.createdCount + importResult.updatedCount} products were imported successfully, but ${importResult.errorCount} row(s) had errors.`
+                    : 'The products could not be committed. Please review the specific row errors below.'}
               </p>
 
               <div

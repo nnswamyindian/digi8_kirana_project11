@@ -146,7 +146,7 @@ export class EscPosEncoder {
 // 2. THERMAL PRINTER ADAPTER (BLUETOOTH, USB, SERIAL & BROWSER)
 // ----------------------------------------------------
 export class ThermalPrinterAdapter {
-  private width: '58mm' | '80mm' = '58mm';
+  private width: '58mm' | '80mm' = '80mm';
   private mode: PrinterConnectionMode = 'BROWSER';
   private deviceName: string | null = null;
   private isConnected: boolean = false;
@@ -160,7 +160,7 @@ export class ThermalPrinterAdapter {
   private serialPort: any = null;
   private serialWriter: any = null;
 
-  constructor(width: '58mm' | '80mm' = '58mm') {
+  constructor(width: '58mm' | '80mm' = '80mm') {
     this.width = width;
   }
 

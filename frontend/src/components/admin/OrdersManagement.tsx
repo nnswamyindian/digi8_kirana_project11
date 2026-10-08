@@ -72,7 +72,10 @@ export const OrdersManagement: React.FC<OrdersManagementProps> = ({
   const loadDeliveryBoys = async () => {
     try {
       const users = await api.getUsers();
-      setDeliveryBoys(users.filter((u) => u.role === 'DELIVERY_BOY' && u.is_active));
+      setDeliveryBoys(users.filter((u) => 
+        ['DELIVERY_BOY', 'DELIVERY_AGENT', 'RIDER'].includes(u.role?.toUpperCase()) && 
+        (u.is_active || u.status === 'ACTIVE' || !u.status)
+      ));
     } catch (err) {
       console.error('Failed to load riders', err);
     }
@@ -97,8 +100,8 @@ export const OrdersManagement: React.FC<OrdersManagementProps> = ({
     try {
       await api.updateOrderStatus(orderId, newStatus);
       await loadOrders();
-    } catch (err) {
-      alert('Failed to update status: ' + err);
+    } catch (err: any) {
+      alert(err.message || 'Failed to update order status');
     }
   };
 

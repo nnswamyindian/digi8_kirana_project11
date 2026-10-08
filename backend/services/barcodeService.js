@@ -199,6 +199,10 @@ export class BarcodeLookupService {
     this.externalProvider = new ExternalProductProvider();
   }
 
+  normalizeBarcode(raw) {
+    return normalizeBarcode(raw);
+  }
+
   async lookup(rawBarcode, tenantId, user = null) {
     const clean = normalizeBarcode(rawBarcode);
     if (!clean) {
@@ -358,3 +362,5 @@ export class BarcodeLookupService {
 }
 
 export const barcodeService = new BarcodeLookupService();
+barcodeService.normalizeBarcode = normalizeBarcode;
+export default barcodeService;

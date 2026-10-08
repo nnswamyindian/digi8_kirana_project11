@@ -15,7 +15,10 @@ export const StoreSettings: React.FC<StoreSettingsProps> = ({
   onRefreshStore,
   onOpenReceipt,
 }) => {
-  const [formData, setFormData] = useState<StoreProfile>({ ...store });
+  const [formData, setFormData] = useState<StoreProfile>({
+    ...store,
+    printer_width: store?.printer_width || '80mm'
+  });
   const [paymentForm, setPaymentForm] = useState<Partial<PaymentSettings>>({
     razorpay_enabled: 1,
     razorpay_key_id: '',
@@ -72,11 +75,17 @@ export const StoreSettings: React.FC<StoreSettingsProps> = ({
   useEffect(() => {
     api.getPaymentSettings().then(res => {
       if (res) {
+        const upiVal = res.store_upi_id || res.upi_id || '';
         setPaymentForm(prev => ({
           ...prev,
           ...res,
+          upi_id: upiVal,
+          store_upi_id: upiVal,
           razorpay_key_secret: '', // Keep empty unless owner types a new secret
         }));
+        if (upiVal) {
+          setFormData(prev => ({ ...prev, upi_id: prev.upi_id || upiVal }));
+        }
       }
     }).catch(console.error);
 
@@ -206,9 +215,14 @@ export const StoreSettings: React.FC<StoreSettingsProps> = ({
         document.documentElement.style.setProperty('--primary-700', formData.button_color);
       }
 
+      // Ensure canonical UPI value is synchronized across both payload objects
+      const activeUpi = formData.upi_id || paymentForm.upi_id || '';
+      const storePayload = { ...formData, upi_id: activeUpi };
+      const paymentPayload = { ...paymentForm, upi_id: activeUpi, store_upi_id: activeUpi };
+
       await Promise.all([
-        api.updateStore(formData),
-        api.updatePaymentSettings(paymentForm)
+        api.updateStore(storePayload),
+        api.updatePaymentSettings(paymentPayload)
       ]);
       setSaveSuccess(true);
       onRefreshStore();
@@ -335,7 +349,11 @@ export const StoreSettings: React.FC<StoreSettingsProps> = ({
               required
               placeholder="e.g. apnakirana@okhdfcbank"
               value={formData.upi_id}
-              onChange={(e) => handleChange('upi_id', e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value;
+                handleChange('upi_id', val);
+                setPaymentForm(prev => ({ ...prev, upi_id: val, store_upi_id: val }));
+              }}
             />
           </div>
         </div>
@@ -663,7 +681,11 @@ export const StoreSettings: React.FC<StoreSettingsProps> = ({
                 type="text"
                 placeholder="e.g. apnakirana@okhdfcbank"
                 value={paymentForm.upi_id || ''}
-                onChange={(e) => handlePaymentChange('upi_id', e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  handlePaymentChange('upi_id', val);
+                  setFormData(prev => ({ ...prev, upi_id: val }));
+                }}
               />
             </div>
 

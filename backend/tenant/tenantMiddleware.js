@@ -85,7 +85,7 @@ export async function resolveTenant(req, res, next) {
 
     // Default Fallback to store_royal_001 so legacy endpoints never break
     if (!tenant) {
-      tenant = await getOne('SELECT * FROM tenants WHERE id = "store_royal_001" LIMIT 1');
+      tenant = await getOne("SELECT * FROM tenants WHERE id = 'store_royal_001' LIMIT 1");
       if (!tenant) {
         tenant = await getOne('SELECT * FROM tenants ORDER BY created_at ASC LIMIT 1');
       }

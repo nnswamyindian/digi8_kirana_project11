@@ -1,9 +1,12 @@
 import 'dotenv/config';
 import mysql from 'mysql2/promise';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
+import Database from 'better-sqlite3';
 import { storeProfile, sampleCategories, sampleProducts, sampleCustomers, sampleSuppliers, sampleRecentOrders } from './seedData.js';
 import { runMigrations } from './migrations/migrationManager.js';
+import { initSqliteDatabase } from './database/sqliteDriver.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,6 +19,31 @@ const DB_PASSWORD = process.env.DB_PASSWORD !== undefined ? process.env.DB_PASSW
 const DB_NAME = process.env.DB_NAME || 'kirana_saas_db';
 
 let mysqlPool = null;
+let isUsingSQLite = false;
+let sqliteDb = null;
+
+function normalizeParams(params) {
+  if (!params) return [];
+  return params.map(p => {
+    if (p === undefined) return null;
+    if (typeof p === 'boolean') return p ? 1 : 0;
+    return p;
+  });
+}
+
+function adaptSql(sql) {
+  if (!sql) return '';
+  let s = sql.trim();
+  // Adapt MySQL 'ON DUPLICATE KEY UPDATE' to SQLite 'INSERT OR REPLACE INTO'
+  if (/ON\s+DUPLICATE\s+KEY\s+UPDATE/i.test(s)) {
+    s = s.replace(/INSERT\s+INTO/i, 'INSERT OR REPLACE INTO');
+    s = s.replace(/ON\s+DUPLICATE\s+KEY\s+UPDATE[\s\S]*$/i, '').trim();
+  }
+  // Convert double-quoted string literals in SQL expressions (e.g. = "val", IN ("a", "b")) to single quotes
+  s = s.replace(/(=|!=|<>|LIKE|NOT\s+LIKE|IN\s*\(|\(|,)\s*"([^"]+)"/gi, "$1 '$2'");
+  s = s.replace(/"([^"]+)"\s*(\)|,)/g, "'$1'$2");
+  return s;
+}
 
 /**
  * Ensures the MySQL database exists before creating the pool.
@@ -62,23 +90,41 @@ export function getPool() {
   return mysqlPool;
 }
 
-export const isMySQL = () => true;
-export const isSQLite = () => false;
+export const isMySQL = () => !isUsingSQLite;
+export const isSQLite = () => isUsingSQLite;
 
 // Unified Promise-Based Query Helper
 export const query = async (sql, params = []) => {
+  if (isUsingSQLite) {
+    const stmt = sqliteDb.prepare(adaptSql(sql));
+    return stmt.all(...normalizeParams(params));
+  }
   const pool = getPool();
   const [rows] = await pool.query(sql, params);
   return rows;
 };
 
 export const getOne = async (sql, params = []) => {
+  if (isUsingSQLite) {
+    const stmt = sqliteDb.prepare(adaptSql(sql));
+    return stmt.get(...normalizeParams(params)) || null;
+  }
   const pool = getPool();
   const [rows] = await pool.query(sql, params);
   return rows && rows.length > 0 ? rows[0] : null;
 };
 
 export const execute = async (sql, params = []) => {
+  if (isUsingSQLite) {
+    const stmt = sqliteDb.prepare(adaptSql(sql));
+    const res = stmt.run(...normalizeParams(params));
+    return {
+      lastID: res.lastInsertRowid,
+      insertId: res.lastInsertRowid,
+      changes: res.changes,
+      affectedRows: res.changes
+    };
+  }
   const pool = getPool();
   const [result] = await pool.execute(sql, params);
   return {
@@ -90,9 +136,21 @@ export const execute = async (sql, params = []) => {
 };
 
 /**
- * Safe column addition helper for MySQL schema evolution
+ * Safe column addition helper for MySQL / SQLite schema evolution
  */
 export const safeAddCol = async (tableName, col, typeDef) => {
+  if (isUsingSQLite) {
+    try {
+      const cols = sqliteDb.pragma(`table_info(${tableName})`);
+      if (!cols.some(c => c.name.toLowerCase() === col.toLowerCase())) {
+        sqliteDb.exec(`ALTER TABLE "${tableName}" ADD COLUMN "${col}" ${typeDef}`);
+        console.log(`[Database Schema] Added column ${col} to ${tableName}`);
+      }
+    } catch (e) {
+      // Ignore
+    }
+    return;
+  }
   try {
     const rows = await query(
       'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
@@ -111,19 +169,40 @@ export const safeAddCol = async (tableName, col, typeDef) => {
  * Initialize all database tables and seed foundational multi-tenant data
  */
 export async function initDatabase() {
-  await ensureDatabaseExists();
-  const pool = getPool();
+  const forceClient = process.env.DB_CLIENT?.toLowerCase();
+  let mysqlSuccess = false;
 
-  // Test pool connectivity
-  try {
-    const testConn = await pool.getConnection();
-    testConn.release();
-  } catch (err) {
-    console.error('\n❌ [MySQL Connection Error]:');
-    console.error(`Unable to connect to MySQL server at ${DB_HOST}:${DB_PORT} with user "${DB_USER}".`);
-    console.error(`Message: ${err.message}`);
-    console.error('Please ensure your MySQL service is running and credentials in .env are correct.\n');
-    throw err;
+  if (forceClient !== 'sqlite') {
+    try {
+      await ensureDatabaseExists();
+      const pool = getPool();
+      const testConn = await pool.getConnection();
+      testConn.release();
+      mysqlSuccess = true;
+      isUsingSQLite = false;
+      console.log(`[Database] Connected to Enterprise MySQL Pool at ${DB_HOST}:${DB_PORT}/${DB_NAME}`);
+    } catch (err) {
+      console.warn(`\n⚠️  [MySQL Database Connection Warning]: MySQL at ${DB_HOST}:${DB_PORT} is not currently reachable (${err.message}).`);
+      console.log('🔄 [Database Engine] Activating robust zero-config local SQLite driver (kirana_saas.db)...\n');
+      mysqlSuccess = false;
+    }
+  }
+
+  if (!mysqlSuccess) {
+    isUsingSQLite = true;
+    const dbDir = path.join(__dirname, 'database');
+    if (!fs.existsSync(dbDir)) {
+      fs.mkdirSync(dbDir, { recursive: true });
+    }
+    const sqlitePath = path.join(dbDir, 'kirana_saas.db');
+    sqliteDb = new Database(sqlitePath);
+    sqliteDb.pragma('journal_mode = WAL');
+    sqliteDb.pragma('foreign_keys = ON');
+    console.log(`[Database] Connected to Persistent SQLite Database at ${sqlitePath}`);
+
+    initSqliteDatabase(sqliteDb);
+    console.log('[Database] Zero-Config SQLite Multi-Tenant Database ready and verified.');
+    return;
   }
 
   // Execute Core DDL Table Setup (InnoDB utf8mb4)
@@ -552,14 +631,80 @@ export async function initDatabase() {
       id VARCHAR(64) PRIMARY KEY,
       order_id VARCHAR(64) NOT NULL,
       tenant_id VARCHAR(64),
+      status VARCHAR(40),
+      payment_status VARCHAR(40),
+      notes TEXT,
+      updated_by VARCHAR(120),
+      created_at VARCHAR(50),
       previous_status VARCHAR(40),
-      new_status VARCHAR(40) NOT NULL,
+      new_status VARCHAR(40),
       changed_by_id VARCHAR(64),
       changed_by_name VARCHAR(120),
       change_reason TEXT,
       source VARCHAR(40),
-      timestamp VARCHAR(50) NOT NULL,
+      timestamp VARCHAR(50),
       INDEX idx_status_hist_order (order_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+    CREATE TABLE IF NOT EXISTS inventory_transactions (
+      id VARCHAR(64) PRIMARY KEY,
+      tenant_id VARCHAR(64) NOT NULL,
+      product_id VARCHAR(64) NOT NULL,
+      product_name VARCHAR(200),
+      quantity DECIMAL(12,3) NOT NULL,
+      unit VARCHAR(30) NOT NULL,
+      transaction_type VARCHAR(50) NOT NULL,
+      reference_id VARCHAR(100),
+      previous_stock DECIMAL(12,3) NOT NULL,
+      new_stock DECIMAL(12,3) NOT NULL,
+      unit_cost DECIMAL(12,2) DEFAULT 0,
+      notes TEXT,
+      created_by VARCHAR(120),
+      created_at VARCHAR(50) NOT NULL,
+      INDEX idx_inv_tx_tenant_prod (tenant_id, product_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+    CREATE TABLE IF NOT EXISTS product_price_history (
+      id VARCHAR(64) PRIMARY KEY,
+      tenant_id VARCHAR(64) NOT NULL,
+      product_id VARCHAR(64) NOT NULL,
+      old_purchase_price DECIMAL(10,2),
+      new_purchase_price DECIMAL(10,2),
+      old_selling_price DECIMAL(10,2),
+      new_selling_price DECIMAL(10,2),
+      old_mrp DECIMAL(10,2),
+      new_mrp DECIMAL(10,2),
+      changed_by VARCHAR(120),
+      reason TEXT,
+      created_at VARCHAR(50) NOT NULL,
+      INDEX idx_pph_tenant_prod (tenant_id, product_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+    CREATE TABLE IF NOT EXISTS product_purchase_price_history (
+      id VARCHAR(64) PRIMARY KEY,
+      tenant_id VARCHAR(64) NOT NULL,
+      product_id VARCHAR(64) NOT NULL,
+      purchase_price DECIMAL(10,2) NOT NULL,
+      quantity DECIMAL(12,3) NOT NULL,
+      supplier_id VARCHAR(64),
+      supplier_name VARCHAR(150),
+      purchase_invoice_id VARCHAR(100),
+      effective_date VARCHAR(50),
+      created_by VARCHAR(120),
+      created_at VARCHAR(50) NOT NULL,
+      INDEX idx_ppph_tenant_prod (tenant_id, product_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      id VARCHAR(64) PRIMARY KEY,
+      type VARCHAR(64) NOT NULL,
+      title VARCHAR(200) NOT NULL,
+      message TEXT,
+      entity_type VARCHAR(50),
+      entity_id VARCHAR(64),
+      store_id VARCHAR(64),
+      is_read TINYINT(1) DEFAULT 0,
+      created_at VARCHAR(50) NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
     -- 12. DELIVERY TRACKING & CASH HANDOVERS
@@ -682,6 +827,29 @@ export async function initDatabase() {
   await safeAddCol('tenants', 'upi_id', 'VARCHAR(100)');
   await safeAddCol('tenants', 'weighted_barcode_enabled', 'TINYINT(1)');
   await safeAddCol('tenants', 'weighted_barcode_prefix', 'VARCHAR(10)');
+  await safeAddCol('customers', 'password', 'VARCHAR(255)');
+  await safeAddCol('customers', 'status', 'VARCHAR(40) DEFAULT "ACTIVE"');
+  await safeAddCol('customers', 'city', 'VARCHAR(100)');
+  await safeAddCol('customers', 'pincode', 'VARCHAR(20)');
+  await safeAddCol('order_status_history', 'status', 'VARCHAR(40)');
+  await safeAddCol('order_status_history', 'payment_status', 'VARCHAR(40)');
+  await safeAddCol('order_status_history', 'notes', 'TEXT');
+  await safeAddCol('order_status_history', 'updated_by', 'VARCHAR(120)');
+  await safeAddCol('order_status_history', 'created_at', 'VARCHAR(50)');
+  await safeAddCol('products', 'sku', 'VARCHAR(100)');
+  await safeAddCol('products', 'max_stock', 'DECIMAL(12,3) DEFAULT 1000');
+  await safeAddCol('products', 'reorder_level', 'DECIMAL(12,3) DEFAULT 10');
+  await safeAddCol('products', 'supplier', 'VARCHAR(150)');
+  await safeAddCol('products', 'hsn_sac', 'VARCHAR(50)');
+  await safeAddCol('products', 'barcode_type', "VARCHAR(30) DEFAULT 'MANUFACTURER'");
+  await safeAddCol('products', 'allow_zero_stock_purchase', "VARCHAR(30) DEFAULT 'DISABLE_PURCHASE'");
+  await safeAddCol('products', 'default_discount_type', "VARCHAR(20) DEFAULT 'NONE'");
+  await safeAddCol('products', 'default_discount_value', 'DECIMAL(10,2) DEFAULT 0');
+  await safeAddCol('notification_events', 'store_id', 'VARCHAR(64)');
+  await safeAddCol('notification_events', 'type', 'VARCHAR(60)');
+  await safeAddCol('notification_events', 'entity_type', 'VARCHAR(60)');
+  await safeAddCol('notification_events', 'entity_id', 'VARCHAR(64)');
+  await safeAddCol('notification_events', 'read_status', 'TINYINT(1) DEFAULT 0');
 
   // Seed Digi8 Master FMCG Global Product Catalog if empty
   try {
