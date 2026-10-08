@@ -20,6 +20,9 @@
     "start": "npm run start --workspace=kirana-backend",
     "start:backend": "npm run start --workspace=kirana-backend",
     "db:init": "npm run db:init --workspace=kirana-backend",
+    "test": "node backend/tests/unit.test.js",
+    "test:unit": "node backend/tests/unit.test.js",
+    "test:integration": "node backend/tests/integration.test.js",
     "test:backend": "npm run test:logins --workspace=kirana-backend",
     "typecheck": "npm run typecheck --workspace=kirana-frontend"
   },

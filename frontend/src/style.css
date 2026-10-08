@@ -1685,14 +1685,6 @@ input, select, textarea {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 16px;
   }
-  .kpi-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
-  }
-  .products-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 16px;
-  }
   .admin-sidebar {
     width: 220px;
   }
@@ -1786,7 +1778,6 @@ input, select, textarea {
     display: none;
   }
 
-<<<<<<< HEAD
   /* POS Responsive Mobile App Experience (Zepto Flow) */
   .pos-layout {
     display: flex !important;
@@ -1881,8 +1872,6 @@ input, select, textarea {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   }
 
-=======
->>>>>>> 354680e282e804646a60142fe9f38f607f854ad3
   /* Touch accessibility */
   button, .btn, .cart-btn, .login-btn {
     min-height: 42px;

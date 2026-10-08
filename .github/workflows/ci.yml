@@ -87,13 +87,18 @@ jobs:
         env:
           NODE_ENV: test
           DB_CLIENT: sqlite
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_USER: kirana_test_user
+          DB_PASSWORD: kirana_test_password
+          DB_NAME: kirana_saas_test_db
           TEST_PORT: 5000
 
       - name: Stage 3 - Verify MySQL Schema Migration Compatibility
         run: |
           echo "Testing MySQL 8.0 schema import..."
-          mysql -h 127.0.0.1 -P 3306 -u kirana_test_user -pkirana_test_password kirana_saas_test_db < database/schema.sql
-          mysql -h 127.0.0.1 -P 3306 -u kirana_test_user -pkirana_test_password kirana_saas_test_db < database/seed.sql
+          mysql -h 127.0.0.1 -P 3306 -u kirana_test_user -pkirana_test_password kirana_saas_test_db < backend/database/schema.sql
+          mysql -h 127.0.0.1 -P 3306 -u kirana_test_user -pkirana_test_password kirana_saas_test_db < backend/database/seed.sql
           echo "MySQL 8.0 schema and seed tables successfully imported!"
 
   # --------------------------------------------------------------------------

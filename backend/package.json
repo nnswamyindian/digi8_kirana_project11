@@ -8,6 +8,9 @@
     "server": "node --watch index.js",
     "dev": "node --watch index.js",
     "db:init": "node database/initDb.js",
+    "test": "node tests/unit.test.js",
+    "test:unit": "node tests/unit.test.js",
+    "test:integration": "node tests/integration.test.js",
     "test:logins": "node test_all_logins.js"
   },
   "dependencies": {
