@@ -96,10 +96,20 @@ jobs:
 
       - name: Stage 3 - Verify MySQL Schema Migration Compatibility
         run: |
-          echo "Testing MySQL 8.0 schema import..."
-          mysql -h 127.0.0.1 -P 3306 -u kirana_test_user -pkirana_test_password kirana_saas_test_db < backend/database/schema.sql
-          mysql -h 127.0.0.1 -P 3306 -u kirana_test_user -pkirana_test_password kirana_saas_test_db < backend/database/seed.sql
-          echo "MySQL 8.0 schema and seed tables successfully imported!"
+          echo "Resetting MySQL test database..."
+
+mysql -h 127.0.0.1 -P 3306 -u root -p"$MYSQL_ROOT_PASSWORD" \
+  -e "DROP DATABASE IF EXISTS kirana_saas_test_db; CREATE DATABASE kirana_saas_test_db;"
+
+echo "Testing MySQL 8.0 schema import..."
+
+mysql -h 127.0.0.1 -P 3306 -u kirana_test_user -pkirana_test_password \
+  kirana_saas_test_db < backend/database/schema.sql
+
+mysql -h 127.0.0.1 -P 3306 -u kirana_test_user -pkirana_test_password \
+  kirana_saas_test_db < backend/database/seed.sql
+
+echo "MySQL 8.0 schema and seed tables successfully imported!"
 
   # --------------------------------------------------------------------------
   # JOB 3: Production Frontend Bundle Compilation & Artifact Packaging
