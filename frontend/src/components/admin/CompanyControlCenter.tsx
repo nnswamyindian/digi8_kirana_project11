@@ -90,8 +90,18 @@ export const CompanyControlCenter: React.FC<CompanyControlCenterProps> = ({
       branch: 'Madhapur Cyber Gateway, Hyderabad',
       upi_id: 'digi8solutions@okhdfcbank',
       invoice_prefix: 'INV-SAAS'
+    },
+    payment_gateway: {
+      key_id: '',
+      key_secret: '',
+      webhook_secret: '',
+      environment: 'test',
+      commission_percent: 1.5,
+      is_active: true
     }
   });
+
+  const [showGatewaySecret, setShowGatewaySecret] = useState<boolean>(false);
 
   // Filters & Modals
   const [appFilter, setAppFilter] = useState('ALL');
@@ -1496,6 +1506,114 @@ export const CompanyControlCenter: React.FC<CompanyControlCenterProps> = ({
                     })}
                     style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #cbd5e1' }}
                   />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#0284c7' }}>
+                  3. Platform Payment Gateway (Razorpay & Online Collections)
+                </h4>
+                <span style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '6px', background: platformSettings.payment_gateway?.environment === 'live' ? '#ecfdf5' : '#fffbeb', color: platformSettings.payment_gateway?.environment === 'live' ? '#047857' : '#b45309', fontWeight: 700, border: '1px solid currentColor' }}>
+                  {platformSettings.payment_gateway?.environment === 'live' ? '🟢 LIVE MODE' : '🟡 TEST / SANDBOX'}
+                </span>
+              </div>
+              <p style={{ margin: '0 0 14px 0', fontSize: '0.8rem', color: '#64748b' }}>
+                Configure central Razorpay credentials for collecting SaaS subscriptions, processing merchant payouts, and platform commission settlement.
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, marginBottom: '4px' }}>Razorpay Key ID</label>
+                  <input
+                    type="text"
+                    placeholder="rzp_live_... or rzp_test_..."
+                    value={platformSettings.payment_gateway?.key_id || ''}
+                    onChange={e => setPlatformSettings({
+                      ...platformSettings,
+                      payment_gateway: { ...platformSettings.payment_gateway, key_id: e.target.value }
+                    })}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #cbd5e1', fontFamily: 'monospace' }}
+                  />
+                </div>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 700 }}>Razorpay Key Secret</label>
+                    <button
+                      type="button"
+                      onClick={() => setShowGatewaySecret(!showGatewaySecret)}
+                      style={{ background: 'none', border: 'none', color: '#0284c7', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      {showGatewaySecret ? 'Hide Secret' : 'Show Secret'}
+                    </button>
+                  </div>
+                  <input
+                    type={showGatewaySecret ? 'text' : 'password'}
+                    placeholder="Enter Razorpay Secret Key"
+                    value={platformSettings.payment_gateway?.key_secret || ''}
+                    onChange={e => setPlatformSettings({
+                      ...platformSettings,
+                      payment_gateway: { ...platformSettings.payment_gateway, key_secret: e.target.value }
+                    })}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #cbd5e1', fontFamily: 'monospace' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, marginBottom: '4px' }}>Webhook Secret</label>
+                  <input
+                    type="password"
+                    placeholder="whsec_..."
+                    value={platformSettings.payment_gateway?.webhook_secret || ''}
+                    onChange={e => setPlatformSettings({
+                      ...platformSettings,
+                      payment_gateway: { ...platformSettings.payment_gateway, webhook_secret: e.target.value }
+                    })}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #cbd5e1', fontFamily: 'monospace' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, marginBottom: '4px' }}>Gateway Environment</label>
+                  <select
+                    value={platformSettings.payment_gateway?.environment || 'test'}
+                    onChange={e => setPlatformSettings({
+                      ...platformSettings,
+                      payment_gateway: { ...platformSettings.payment_gateway, environment: e.target.value }
+                    })}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+                  >
+                    <option value="test">Test Mode (Sandbox / Staging)</option>
+                    <option value="live">Live Mode (Production Payments)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, marginBottom: '4px' }}>Platform Commission (%)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="100"
+                    placeholder="e.g. 1.5"
+                    value={platformSettings.payment_gateway?.commission_percent ?? 1.5}
+                    onChange={e => setPlatformSettings({
+                      ...platformSettings,
+                      payment_gateway: { ...platformSettings.payment_gateway, commission_percent: parseFloat(e.target.value) || 0 }
+                    })}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', marginTop: '22px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={platformSettings.payment_gateway?.is_active ?? true}
+                      onChange={e => setPlatformSettings({
+                        ...platformSettings,
+                        payment_gateway: { ...platformSettings.payment_gateway, is_active: e.target.checked }
+                      })}
+                      style={{ width: '16px', height: '16px', accentColor: '#0284c7' }}
+                    />
+                    Enable Platform Gateway for Merchant Billing
+                  </label>
                 </div>
               </div>
             </div>

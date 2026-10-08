@@ -113,6 +113,30 @@ export class EscPosEncoder {
     return this;
   }
 
+  qrcode(data: string, moduleSize: number = 4): this {
+    if (!data) return this;
+    const encoder = new TextEncoder();
+    const dataBytes = encoder.encode(data);
+    const len = dataBytes.length + 3;
+    const pL = len % 256;
+    const pH = Math.floor(len / 256);
+
+    // 1. Select model 2
+    this.buffer.push(0x1d, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00);
+    // 2. Set module size (4 for 58mm, 6 for 80mm)
+    this.buffer.push(0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, Math.min(8, Math.max(2, moduleSize)));
+    // 3. Set error correction level M (49)
+    this.buffer.push(0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x45, 0x31);
+    // 4. Store data
+    this.buffer.push(0x1d, 0x28, 0x6b, pL, pH, 0x31, 0x50, 0x30);
+    for (let i = 0; i < dataBytes.length; i++) {
+      this.buffer.push(dataBytes[i]);
+    }
+    // 5. Print QR Code
+    this.buffer.push(0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x51, 0x30);
+    return this;
+  }
+
   getBytes(): Uint8Array {
     return new Uint8Array(this.buffer);
   }
@@ -122,7 +146,7 @@ export class EscPosEncoder {
 // 2. THERMAL PRINTER ADAPTER (BLUETOOTH, USB, SERIAL & BROWSER)
 // ----------------------------------------------------
 export class ThermalPrinterAdapter {
-  private width: '58mm' | '80mm' = '80mm';
+  private width: '58mm' | '80mm' = '58mm';
   private mode: PrinterConnectionMode = 'BROWSER';
   private deviceName: string | null = null;
   private isConnected: boolean = false;
@@ -136,7 +160,7 @@ export class ThermalPrinterAdapter {
   private serialPort: any = null;
   private serialWriter: any = null;
 
-  constructor(width: '58mm' | '80mm' = '80mm') {
+  constructor(width: '58mm' | '80mm' = '58mm') {
     this.width = width;
   }
 
@@ -518,15 +542,24 @@ export class ThermalPrinterAdapter {
 
     encoder.line(doubleDivider);
 
-    // 5. Footer & Greeting
+    // 5. UPI QR Code & Footer
     encoder.align('center');
+    if (data.upi_id) {
+      const upiUrl = `upi://pay?pa=${encodeURIComponent(data.upi_id)}&pn=${encodeURIComponent(data.store_name || 'Apna Kirana')}&am=${data.total.toFixed(2)}&cu=INR&tn=${encodeURIComponent('Bill ' + (data.invoice_no || ''))}`;
+      encoder.feed(1);
+      encoder.qrcode(upiUrl, this.width === '58mm' ? 4 : 5);
+      encoder.feed(1);
+      encoder.bold(true);
+      encoder.line('SCAN & PAY VIA ANY UPI APP');
+      encoder.bold(false);
+      encoder.line(`UPI ID: ${data.upi_id}`);
+      encoder.line(divider);
+    }
+
     encoder.line('** THANK YOU FOR SHOPPING! **');
     encoder.line('Save More Every Day - Please Visit Again');
     if (data.footer_text) {
       encoder.line(data.footer_text);
-    }
-    if (data.upi_id) {
-      encoder.line(`UPI: ${data.upi_id}`);
     }
 
     encoder.feed(2);

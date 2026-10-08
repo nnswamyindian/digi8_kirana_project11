@@ -197,6 +197,15 @@ export const StoreSettings: React.FC<StoreSettingsProps> = ({
     setSaveSuccess(false);
 
     try {
+      // 1. Immediately apply brand colors to CSS root variables for instant UI update
+      if (formData.primary_color) {
+        document.documentElement.style.setProperty('--primary-500', formData.primary_color);
+        document.documentElement.style.setProperty('--primary-600', formData.primary_color);
+      }
+      if (formData.button_color) {
+        document.documentElement.style.setProperty('--primary-700', formData.button_color);
+      }
+
       await Promise.all([
         api.updateStore(formData),
         api.updatePaymentSettings(paymentForm)
@@ -204,8 +213,8 @@ export const StoreSettings: React.FC<StoreSettingsProps> = ({
       setSaveSuccess(true);
       onRefreshStore();
       setTimeout(() => setSaveSuccess(false), 2500);
-    } catch (err) {
-      alert('Failed to save settings: ' + err);
+    } catch (err: any) {
+      alert('Failed to save settings: ' + (err.message || err));
     } finally {
       setIsSaving(false);
     }
@@ -328,6 +337,122 @@ export const StoreSettings: React.FC<StoreSettingsProps> = ({
               value={formData.upi_id}
               onChange={(e) => handleChange('upi_id', e.target.value)}
             />
+          </div>
+        </div>
+
+        {/* Store Brand Color Palette & Theme Customizer */}
+        <div style={{ marginTop: '20px', paddingTop: '18px', borderTop: '1px solid #f1f5f9' }}>
+          <label style={{ display: 'block', fontWeight: 800, fontSize: '0.9rem', marginBottom: '8px', color: 'var(--text-main)' }}>
+            🎨 Store Theme & Custom Branding Colors
+          </label>
+          <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 12px 0' }}>
+            Choose a preset color palette or customize individual brand colors for your dashboard, buttons, and customer storefront.
+          </p>
+
+          {/* Preset Swatches */}
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
+            {[
+              { name: '🌿 Kirana Fresh', primary: '#16a34a', secondary: '#0f766e', button: '#15803d' },
+              { name: '⚡ Zepto Purple', primary: '#7c3aed', secondary: '#6d28d9', button: '#5b21b6' },
+              { name: '👑 Royal Blue', primary: '#2563eb', secondary: '#1e40af', button: '#1d4ed8' },
+              { name: '🍊 Warm Amber', primary: '#d97706', secondary: '#b45309', button: '#b45309' },
+              { name: '🔴 Bharat Red', primary: '#dc2626', secondary: '#991b1b', button: '#b91c1c' },
+              { name: '🖤 Modern Dark', primary: '#0f172a', secondary: '#334155', button: '#1e293b' }
+            ].map(preset => (
+              <button
+                key={preset.name}
+                type="button"
+                onClick={() => {
+                  setFormData(prev => ({
+                    ...prev,
+                    primary_color: preset.primary,
+                    secondary_color: preset.secondary,
+                    button_color: preset.button
+                  }));
+                  document.documentElement.style.setProperty('--primary-500', preset.primary);
+                  document.documentElement.style.setProperty('--primary-600', preset.primary);
+                  document.documentElement.style.setProperty('--primary-700', preset.button);
+                }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '5px 10px',
+                  borderRadius: '20px',
+                  border: formData.primary_color === preset.primary ? '2px solid #0f172a' : '1px solid #e2e8f0',
+                  background: 'white',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
+              >
+                <span style={{ width: 12, height: 12, borderRadius: '50%', background: preset.primary, display: 'inline-block' }} />
+                <span>{preset.name}</span>
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '4px' }}>Primary Theme Color</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="color"
+                  value={formData.primary_color || '#16a34a'}
+                  onChange={e => {
+                    handleChange('primary_color', e.target.value);
+                    document.documentElement.style.setProperty('--primary-500', e.target.value);
+                    document.documentElement.style.setProperty('--primary-600', e.target.value);
+                  }}
+                  style={{ width: '40px', height: '36px', padding: 0, border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                />
+                <input
+                  type="text"
+                  value={formData.primary_color || '#16a34a'}
+                  onChange={e => handleChange('primary_color', e.target.value)}
+                  style={{ flex: 1, padding: '6px 10px', fontSize: '0.85rem' }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '4px' }}>Secondary / Header Color</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="color"
+                  value={formData.secondary_color || '#0f766e'}
+                  onChange={e => handleChange('secondary_color', e.target.value)}
+                  style={{ width: '40px', height: '36px', padding: 0, border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                />
+                <input
+                  type="text"
+                  value={formData.secondary_color || '#0f766e'}
+                  onChange={e => handleChange('secondary_color', e.target.value)}
+                  style={{ flex: 1, padding: '6px 10px', fontSize: '0.85rem' }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '4px' }}>Button / Action CTA Color</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="color"
+                  value={formData.button_color || '#15803d'}
+                  onChange={e => {
+                    handleChange('button_color', e.target.value);
+                    document.documentElement.style.setProperty('--primary-700', e.target.value);
+                  }}
+                  style={{ width: '40px', height: '36px', padding: 0, border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                />
+                <input
+                  type="text"
+                  value={formData.button_color || '#15803d'}
+                  onChange={e => handleChange('button_color', e.target.value)}
+                  style={{ flex: 1, padding: '6px 10px', fontSize: '0.85rem' }}
+                />
+              </div>
+            </div>
           </div>
         </div>
       </div>

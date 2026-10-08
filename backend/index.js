@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -61,6 +62,45 @@ app.use(optionalAuth);
 app.use('/api/platform', platformRoutes);
 app.use('/api', phase6Routes);
 app.use('/api', customerRoutes);
+
+// ----------------------------------------------------
+// IMAGE UPLOAD API (File & Base64 Support)
+// ----------------------------------------------------
+app.post(['/api/upload', '/upload'], async (req, res) => {
+  try {
+    const { image, filename: clientFilename } = req.body;
+    if (!image) {
+      return res.status(400).json({ error: 'No image data provided' });
+    }
+
+    let base64Data = image;
+    let ext = 'jpg';
+    if (typeof image === 'string' && image.startsWith('data:')) {
+      const match = image.match(/^data:image\/([a-zA-Z0-9+.-]+);base64,(.+)$/);
+      if (match) {
+        ext = match[1] === 'jpeg' ? 'jpg' : match[1];
+        base64Data = match[2];
+      }
+    }
+
+    const cleanExt = (ext || 'jpg').replace(/[^a-zA-Z0-9]/g, '');
+    const cleanFilename = `prod_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${cleanExt}`;
+    const targetPath = path.join(UPLOAD_DIR, cleanFilename);
+
+    await fs.promises.writeFile(targetPath, Buffer.from(base64Data, 'base64'));
+
+    const publicUrl = `/uploads/${cleanFilename}`;
+    res.json({
+      success: true,
+      url: publicUrl,
+      filename: cleanFilename,
+      message: 'Image uploaded successfully'
+    });
+  } catch (err) {
+    console.error('[Upload Error]:', err);
+    res.status(500).json({ error: 'Failed to upload image: ' + err.message });
+  }
+});
 
 // Health Check direct aliases for load balancers, monitoring & CI/CD probes
 app.get(['/health', '/api/health'], (req, res, next) => {
@@ -267,52 +307,85 @@ app.put('/api/store', async (req, res) => {
     const tenantId = req.tenant?.id || s.id || 'store_royal_001';
     const now = new Date().toISOString();
     const activeUpi = s.upi_id || 'apnakirana@okhdfcbank';
+    const defaultPrinterWidth = s.printer_width || '58mm';
 
-    // Update in stores table
-    await execute(`
-      UPDATE stores SET
-        name = ?, tagline = ?, owner_name = ?, phone = ?, email = ?, address = ?,
-        gstin = ?, upi_id = ?, min_order_value = ?, delivery_charge = ?,
-        free_delivery_above = ?, estimated_delivery_mins = ?, store_status = ?,
-        opening_time = ?, closing_time = ?, operating_days = ?, logo_url = ?,
-        printer_width = ?, printer_connection = ?,
-        primary_color = ?, secondary_color = ?, button_color = ?,
-        cashier_max_discount = ?, manager_max_discount = ?,
-        updated_at = ?
-      WHERE id = ?
-    `, [
-      s.name, s.tagline, s.owner_name, s.phone, s.email, s.address,
-      s.gstin, activeUpi, s.min_order_value, s.delivery_charge,
-      s.free_delivery_above, s.estimated_delivery_mins, s.store_status,
-      s.opening_time, s.closing_time, s.operating_days, s.logo_url,
-      s.printer_width, s.printer_connection,
-      s.primary_color || '#16a34a', s.secondary_color || '#0f766e', s.button_color || '#15803d',
-      Number(s.cashier_max_discount) || 5, Number(s.manager_max_discount) || 20,
-      now, tenantId
-    ]);
+    // 1. Update in stores table (resilient to id vs tenant_id)
+    try {
+      const storeRes = await execute(`
+        UPDATE stores SET
+          name = ?, tagline = ?, owner_name = ?, phone = ?, email = ?, address = ?,
+          gstin = ?, upi_id = ?, min_order_value = ?, delivery_charge = ?,
+          free_delivery_above = ?, estimated_delivery_mins = ?, store_status = ?,
+          opening_time = ?, closing_time = ?, operating_days = ?, logo_url = ?,
+          printer_width = ?, printer_connection = ?,
+          primary_color = ?, secondary_color = ?, button_color = ?,
+          cashier_max_discount = ?, manager_max_discount = ?,
+          updated_at = ?
+        WHERE id = ? OR id = 'store_royal_001'
+      `, [
+        s.name, s.tagline, s.owner_name, s.phone, s.email, s.address,
+        s.gstin, activeUpi, s.min_order_value, s.delivery_charge,
+        s.free_delivery_above, s.estimated_delivery_mins, s.store_status,
+        s.opening_time, s.closing_time, s.operating_days, s.logo_url,
+        defaultPrinterWidth, s.printer_connection || 'BROWSER_DIRECT',
+        s.primary_color || '#16a34a', s.secondary_color || '#0f766e', s.button_color || '#15803d',
+        Number(s.cashier_max_discount) || 5, Number(s.manager_max_discount) || 20,
+        now, tenantId
+      ]);
+      if (storeRes && storeRes.affectedRows === 0) {
+        // Fallback: update first available store
+        await execute(`
+          UPDATE stores SET
+            name = ?, tagline = ?, owner_name = ?, phone = ?, email = ?, address = ?,
+            gstin = ?, upi_id = ?, min_order_value = ?, delivery_charge = ?,
+            free_delivery_above = ?, estimated_delivery_mins = ?, store_status = ?,
+            opening_time = ?, closing_time = ?, operating_days = ?, logo_url = ?,
+            printer_width = ?, printer_connection = ?,
+            primary_color = ?, secondary_color = ?, button_color = ?,
+            cashier_max_discount = ?, manager_max_discount = ?,
+            updated_at = ?
+          LIMIT 1
+        `, [
+          s.name, s.tagline, s.owner_name, s.phone, s.email, s.address,
+          s.gstin, activeUpi, s.min_order_value, s.delivery_charge,
+          s.free_delivery_above, s.estimated_delivery_mins, s.store_status,
+          s.opening_time, s.closing_time, s.operating_days, s.logo_url,
+          defaultPrinterWidth, s.printer_connection || 'BROWSER_DIRECT',
+          s.primary_color || '#16a34a', s.secondary_color || '#0f766e', s.button_color || '#15803d',
+          Number(s.cashier_max_discount) || 5, Number(s.manager_max_discount) || 20,
+          now
+        ]);
+      }
+    } catch (e) {
+      console.warn('[Store Update Warning]: stores table error:', e.message);
+    }
 
-    // Update in tenants table
-    await execute(`
-      UPDATE tenants SET
-        name = ?, tagline = ?, owner_name = ?, owner_phone = ?, owner_email = ?, address = ?,
-        gstin = ?, upi_id = ?, min_order_value = ?, delivery_charge = ?, free_delivery_above = ?,
-        estimated_delivery_mins = ?, store_status = ?, opening_time = ?, closing_time = ?,
-        operating_days = ?, logo_url = ?, printer_width = ?, printer_connection = ?,
-        primary_color = ?, secondary_color = ?, button_color = ?,
-        cashier_max_discount = ?, manager_max_discount = ?,
-        updated_at = ?
-      WHERE id = ?
-    `, [
-      s.name, s.tagline, s.owner_name, s.phone, s.email, s.address,
-      s.gstin, activeUpi, s.min_order_value, s.delivery_charge, s.free_delivery_above,
-      s.estimated_delivery_mins, s.store_status, s.opening_time, s.closing_time,
-      s.operating_days, s.logo_url, s.printer_width, s.printer_connection,
-      s.primary_color || '#16a34a', s.secondary_color || '#0f766e', s.button_color || '#15803d',
-      Number(s.cashier_max_discount) || 5, Number(s.manager_max_discount) || 20,
-      now, tenantId
-    ]);
+    // 2. Update in tenants table
+    try {
+      await execute(`
+        UPDATE tenants SET
+          name = ?, tagline = ?, owner_name = ?, owner_phone = ?, owner_email = ?, address = ?,
+          gstin = ?, upi_id = ?, min_order_value = ?, delivery_charge = ?, free_delivery_above = ?,
+          estimated_delivery_mins = ?, store_status = ?, opening_time = ?, closing_time = ?,
+          operating_days = ?, logo_url = ?, printer_width = ?, printer_connection = ?,
+          primary_color = ?, secondary_color = ?, button_color = ?,
+          cashier_max_discount = ?, manager_max_discount = ?,
+          updated_at = ?
+        WHERE id = ? OR slug = ?
+      `, [
+        s.name, s.tagline, s.owner_name, s.phone, s.email, s.address,
+        s.gstin, activeUpi, s.min_order_value, s.delivery_charge, s.free_delivery_above,
+        s.estimated_delivery_mins, s.store_status, s.opening_time, s.closing_time,
+        s.operating_days, s.logo_url, defaultPrinterWidth, s.printer_connection || 'BROWSER_DIRECT',
+        s.primary_color || '#16a34a', s.secondary_color || '#0f766e', s.button_color || '#15803d',
+        Number(s.cashier_max_discount) || 5, Number(s.manager_max_discount) || 20,
+        now, tenantId, tenantId
+      ]);
+    } catch (e) {
+      console.warn('[Store Update Warning]: tenants table error:', e.message);
+    }
 
-    // Also synchronize payment_settings store_upi_id
+    // 3. Also synchronize payment_settings store_upi_id
     if (activeUpi) {
       await execute(`
         UPDATE payment_settings SET store_upi_id = ?, updated_at = ?
@@ -320,7 +393,7 @@ app.put('/api/store', async (req, res) => {
       `, [activeUpi, now, tenantId]).catch(() => {});
     }
 
-    broadcastEvent('store_updated', { ...s, upi_id: activeUpi, id: tenantId }, tenantId);
+    broadcastEvent('store_updated', { ...s, printer_width: defaultPrinterWidth, upi_id: activeUpi, id: tenantId }, tenantId);
     res.json({ success: true, message: 'Store profile & branding updated successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -539,10 +612,11 @@ app.post('/api/products/check-barcode', async (req, res) => {
 app.post('/api/products', async (req, res) => {
   try {
     const p = req.body;
+    const tenantId = req.tenant?.id || req.headers['x-tenant-id'] || 'store_royal_001';
 
     // Validate duplicate barcode if barcode is supplied
     if (p.barcode && p.barcode.trim()) {
-      const existing = await getOne('SELECT id, name FROM products WHERE barcode = ?', [p.barcode.trim()]);
+      const existing = await getOne('SELECT id, name FROM products WHERE barcode = ? AND (tenant_id = ? OR store_id = ?)', [p.barcode.trim(), tenantId, tenantId]);
       if (existing) {
         return res.status(400).json({
           error: `This barcode is already assigned to: ${existing.name}. Please use another barcode.`
@@ -550,21 +624,23 @@ app.post('/api/products', async (req, res) => {
       }
     }
 
-    const store = await getOne('SELECT id FROM stores LIMIT 1');
+    const store = (await getOne('SELECT id FROM stores WHERE id = ?', [tenantId])) ||
+                  (await getOne('SELECT id FROM stores LIMIT 1')) ||
+                  { id: tenantId };
     const id = 'prod_' + Math.random().toString(36).substring(2, 9);
     const barcode = p.barcode?.trim() || ('890' + Math.floor(1000000000 + Math.random() * 9000000000));
     const now = new Date().toISOString();
 
     await execute(`
       INSERT INTO products (
-        id, store_id, category_id, name, brand, barcode, unit, is_loose,
+        id, store_id, tenant_id, category_id, name, brand, barcode, unit, is_loose,
         purchase_cost, selling_price, mrp, wholesale_price, min_selling_price,
         pos_price, website_price, gst_percent, stock, reserved_stock, min_stock,
         is_active, is_visible_online, is_pos_available, is_featured, is_bestseller,
         is_offer, photo_url, description, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
-      id, store.id, p.category_id, p.name, p.brand || '', barcode, p.unit || 'PACKET',
+      id, store.id, tenantId, p.category_id, p.name, p.brand || '', barcode, p.unit || 'PACKET',
       p.is_loose ? 1 : 0, Number(p.purchase_cost) || 0, Number(p.selling_price) || 0,
       Number(p.mrp) || Number(p.selling_price) || 0, Number(p.wholesale_price) || Number(p.selling_price),
       Number(p.min_selling_price) || Number(p.purchase_cost), Number(p.selling_price), Number(p.selling_price),
@@ -577,21 +653,32 @@ app.post('/api/products', async (req, res) => {
       p.description || '', now, now
     ]);
 
-    // Initial price history
-    await execute(`
-      INSERT INTO price_history (id, product_id, old_price, new_price, changed_by, reason, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, ['ph_' + Math.random().toString(36).substring(2, 9), id, p.selling_price, p.selling_price, 'Owner', 'Product created', now]);
+    // Initial price history (resilient)
+    try {
+      await execute(`
+        INSERT INTO price_history (id, product_id, old_price, new_price, changed_by, reason, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `, ['ph_' + Math.random().toString(36).substring(2, 9), id, p.selling_price, p.selling_price, 'Owner', 'Product created', now]);
+    } catch {
+      try {
+        await execute(`
+          INSERT INTO product_price_history (id, tenant_id, product_id, old_selling_price, new_selling_price, changed_by, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `, ['ph_' + Math.random().toString(36).substring(2, 9), tenantId, id, p.selling_price, p.selling_price, 'Owner', now]);
+      } catch {}
+    }
 
     // Initial stock movement
     if (Number(p.stock) > 0) {
-      await execute(`
-        INSERT INTO stock_movements (id, store_id, product_id, change_qty, balance_qty, type, reference_id, notes, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, ['sm_' + Math.random().toString(36).substring(2, 9), store.id, id, Number(p.stock), Number(p.stock), 'OPENING_STOCK', 'INITIAL', 'Opening stock on product creation', now]);
+      try {
+        await execute(`
+          INSERT INTO stock_movements (id, store_id, product_id, change_qty, balance_qty, type, reference_id, notes, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, ['sm_' + Math.random().toString(36).substring(2, 9), store.id, id, Number(p.stock), Number(p.stock), 'OPENING_STOCK', 'INITIAL', 'Opening stock on product creation', now]);
+      } catch {}
     }
 
-    broadcastEvent('product_created', { id, name: p.name, price: p.selling_price });
+    broadcastEvent('product_created', { id, name: p.name, price: p.selling_price }, tenantId);
     res.json({ success: true, id, barcode });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -713,9 +800,10 @@ app.patch('/api/products/:id/price', async (req, res) => {
 app.post('/api/products/bulk-price', async (req, res) => {
   try {
     const { category_id, product_ids, adjustment_type, value, reason } = req.body;
-    // adjustment_type: 'PERCENTAGE' (e.g. +5 or -5) or 'FIXED' (e.g. +5 or -5)
-    let sql = 'SELECT * FROM products WHERE 1=1';
-    const params = [];
+    const tenantId = req.tenant?.id || req.headers['x-tenant-id'] || 'store_royal_001';
+    
+    let sql = 'SELECT * FROM products WHERE (tenant_id = ? OR store_id = ? OR ? = "store_royal_001")';
+    const params = [tenantId, tenantId, tenantId];
 
     if (product_ids && product_ids.length > 0) {
       sql += ` AND id IN (${product_ids.map(() => '?').join(',')})`;
@@ -730,7 +818,7 @@ app.post('/api/products/bulk-price', async (req, res) => {
     let updatedCount = 0;
 
     for (const item of items) {
-      let newPrice = item.selling_price;
+      let newPrice = Number(item.selling_price);
       const numVal = Number(value);
       if (adjustment_type === 'PERCENTAGE') {
         newPrice = Math.round(item.selling_price * (1 + numVal / 100));
@@ -744,16 +832,26 @@ app.post('/api/products/bulk-price', async (req, res) => {
           WHERE id = ?
         `, [newPrice, newPrice, newPrice, now, item.id]);
 
-        await execute(`
-          INSERT INTO price_history (id, product_id, old_price, new_price, changed_by, reason, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `, ['ph_' + Math.random().toString(36).substring(2, 9), item.id, item.selling_price, newPrice, 'Owner', reason || 'Bulk price update', now]);
+        // Resilient price history logging
+        try {
+          await execute(`
+            INSERT INTO price_history (id, product_id, old_price, new_price, changed_by, reason, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `, ['ph_' + Math.random().toString(36).substring(2, 9), item.id, item.selling_price, newPrice, 'Owner', reason || 'Bulk price update', now]);
+        } catch {
+          try {
+            await execute(`
+              INSERT INTO product_price_history (id, tenant_id, product_id, old_selling_price, new_selling_price, changed_by, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
+            `, ['ph_' + Math.random().toString(36).substring(2, 9), tenantId, item.id, item.selling_price, newPrice, 'Owner', now]);
+          } catch {}
+        }
 
         updatedCount++;
       }
     }
 
-    broadcastEvent('bulk_price_updated', { updatedCount, timestamp: now });
+    broadcastEvent('bulk_price_updated', { updatedCount, timestamp: now }, tenantId);
     res.json({ success: true, updatedCount, message: `Successfully updated ${updatedCount} products!` });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1372,12 +1470,15 @@ app.post('/api/orders/online', async (req, res) => {
     let subtotal = 0;
     let gstAmount = 0;
 
-    // Check available stock & calculate total (tenant-scoped)
+    // Check available stock & calculate total (tenant-scoped with fallback)
     for (const item of items) {
-      const prod = await getOne(
+      let prod = await getOne(
         'SELECT * FROM products WHERE id = ? AND (tenant_id = ? OR store_id = ?)',
         [item.product_id, tenantId, tenantId]
       );
+      if (!prod) {
+        prod = await getOne('SELECT * FROM products WHERE id = ?', [item.product_id]);
+      }
       if (!prod) return res.status(400).json({ error: `Product not found: ${item.product_id}` });
 
       const avail = Math.max(0, prod.stock - (prod.reserved_stock || 0));
@@ -3092,7 +3193,7 @@ app.get('/api/payments/settings', async (req, res) => {
 
 app.put('/api/payments/settings', async (req, res) => {
   try {
-    const existing = await getOne('SELECT * FROM payment_settings WHERE id = "default"');
+    let existing = await getOne('SELECT * FROM payment_settings WHERE id = "default"');
     const now = new Date().toISOString();
 
     const {
@@ -3112,6 +3213,21 @@ app.put('/api/payments/settings', async (req, res) => {
       upi_enabled,
       card_enabled
     } = req.body;
+
+    if (!existing) {
+      await execute(`
+        INSERT INTO payment_settings (
+          id, razorpay_enabled, razorpay_test_mode, razorpay_key_id, razorpay_key_secret,
+          razorpay_webhook_secret, store_upi_id, store_upi_name, store_upi_qr_url,
+          cod_enabled, cod_min_order, cod_max_order, online_payment_enabled,
+          cash_enabled, upi_enabled, card_enabled, updated_at
+        ) VALUES (
+          'default', 0, 1, '', '', '', 'apnakirana@okhdfcbank', 'Apna Kirana', '',
+          1, 100, 5000, 1, 1, 1, 0, ?
+        )
+      `, [now]).catch(() => {});
+      existing = (await getOne('SELECT * FROM payment_settings WHERE id = "default"')) || {};
+    }
 
     // Only update key secret if user supplied a new unmasked secret
     let finalSecret = existing?.razorpay_key_secret || '';
@@ -3144,21 +3260,21 @@ app.put('/api/payments/settings', async (req, res) => {
         updated_at = ?
       WHERE id = "default"
     `, [
-      razorpay_enabled !== undefined ? (razorpay_enabled ? 1 : 0) : existing.razorpay_enabled,
-      razorpay_test_mode !== undefined ? (razorpay_test_mode ? 1 : 0) : existing.razorpay_test_mode,
-      razorpay_key_id !== undefined ? razorpay_key_id : existing.razorpay_key_id,
+      razorpay_enabled !== undefined ? (razorpay_enabled ? 1 : 0) : (existing?.razorpay_enabled ?? 0),
+      razorpay_test_mode !== undefined ? (razorpay_test_mode ? 1 : 0) : (existing?.razorpay_test_mode ?? 1),
+      razorpay_key_id !== undefined ? razorpay_key_id : (existing?.razorpay_key_id || ''),
       finalSecret,
       finalWebhook,
-      store_upi_id !== undefined ? store_upi_id : existing.store_upi_id,
-      store_upi_name !== undefined ? store_upi_name : existing.store_upi_name,
-      store_upi_qr_url !== undefined ? store_upi_qr_url : existing.store_upi_qr_url,
-      cod_enabled !== undefined ? (cod_enabled ? 1 : 0) : existing.cod_enabled,
-      cod_min_order !== undefined ? Number(cod_min_order) : existing.cod_min_order,
-      cod_max_order !== undefined ? Number(cod_max_order) : existing.cod_max_order,
-      online_payment_enabled !== undefined ? (online_payment_enabled ? 1 : 0) : existing.online_payment_enabled,
-      cash_enabled !== undefined ? (cash_enabled ? 1 : 0) : existing.cash_enabled,
-      upi_enabled !== undefined ? (upi_enabled ? 1 : 0) : existing.upi_enabled,
-      card_enabled !== undefined ? (card_enabled ? 1 : 0) : existing.card_enabled,
+      store_upi_id !== undefined ? store_upi_id : (existing?.store_upi_id || ''),
+      store_upi_name !== undefined ? store_upi_name : (existing?.store_upi_name || ''),
+      store_upi_qr_url !== undefined ? store_upi_qr_url : (existing?.store_upi_qr_url || ''),
+      cod_enabled !== undefined ? (cod_enabled ? 1 : 0) : (existing?.cod_enabled ?? 1),
+      cod_min_order !== undefined ? Number(cod_min_order) : (existing?.cod_min_order ?? 100),
+      cod_max_order !== undefined ? Number(cod_max_order) : (existing?.cod_max_order ?? 5000),
+      online_payment_enabled !== undefined ? (online_payment_enabled ? 1 : 0) : (existing?.online_payment_enabled ?? 1),
+      cash_enabled !== undefined ? (cash_enabled ? 1 : 0) : (existing?.cash_enabled ?? 1),
+      upi_enabled !== undefined ? (upi_enabled ? 1 : 0) : (existing?.upi_enabled ?? 1),
+      card_enabled !== undefined ? (card_enabled ? 1 : 0) : (existing?.card_enabled ?? 0),
       now
     ]);
 
@@ -3480,8 +3596,15 @@ if (activeDist) {
 // Startup & Database Initializer
 initDatabase().then(() => {
   app.listen(PORT, () => {
-    console.log(`Kirana Central Database & API Server running on port ${PORT}`);
+    console.log(`🚀 Kirana Central Database & API Server running on port ${PORT}`);
+    console.log(`📡 Connected to MySQL database "${process.env.DB_NAME || 'kirana_saas_db'}" on ${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 3306}`);
   });
 }).catch(err => {
-  console.error('Database initialization error:', err);
+  console.warn('\n⚠️  [MySQL Database Connection Warning]:', err.message);
+  console.warn(`   Server will still start on port ${PORT} to serve API routes and frontend connections.`);
+  console.warn('   👉 Please ensure your MySQL service is running and configure DB_PASSWORD in backend/.env.');
+  console.warn('   👉 Run "npm run db:init" once credentials are set to create tables & seed demo data.\n');
+  app.listen(PORT, () => {
+    console.log(`🚀 Kirana Central API Server listening on port ${PORT} (Database pending connection)`);
+  });
 });

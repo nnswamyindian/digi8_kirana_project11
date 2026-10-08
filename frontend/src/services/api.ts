@@ -8,7 +8,7 @@ import {
 } from '../types';
 import { getFallbackDemoUser, DEFAULT_FALLBACK_STORE } from './fallbackData';
 
-const BASE_URL = '/api';
+const BASE_URL = (import.meta.env.VITE_API_URL as string) || '/api';
 
 // Multi-Tenant Resolution State
 let activeTenantId: string = (() => {
@@ -121,8 +121,9 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    if (!res.ok) throw new Error('Failed to update store');
-    return res.json();
+    const result = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(result?.error || 'Failed to update store');
+    return result;
   },
 
   // Categories
@@ -458,14 +459,26 @@ export const api = {
   // PHASE 2: IMAGE UPLOAD & HARDWARE
   // ----------------------------------------------------
   async uploadImage(base64Image: string, filename?: string): Promise<{ success: boolean; url: string; filename: string }> {
-    const res = await apiFetch(`${BASE_URL}/upload`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: base64Image, filename }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Unable to upload image. Please try again.');
-    return data;
+    try {
+      const res = await apiFetch(`${BASE_URL}/upload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: base64Image, filename }),
+      });
+      const data = await safeParseResponse(res);
+      if (!res.ok || data.error) {
+        if (base64Image && (base64Image.startsWith('data:image') || base64Image.startsWith('http'))) {
+          return { success: true, url: base64Image, filename: filename || 'product.jpg' };
+        }
+        throw new Error(data.error || 'Unable to upload image. Please try again.');
+      }
+      return data;
+    } catch (err: any) {
+      if (base64Image && (base64Image.startsWith('data:image') || base64Image.startsWith('http'))) {
+        return { success: true, url: base64Image, filename: filename || 'product.jpg' };
+      }
+      throw err;
+    }
   },
 
   async checkBarcode(barcode: string, excludeId?: string): Promise<{ exists: boolean; product_name?: string; message?: string }> {

@@ -945,12 +945,13 @@ router.post('/admin/applications/:id/approve', async (req, res) => {
       ]);
     }
 
-    // Ensure platform subscription record exists in PENDING state
+    // Ensure platform subscription record exists in ACTIVE state
     await execute(`
       INSERT INTO platform_subscriptions (
         id, tenant_id, plan_id, status, billing_cycle, amount, setup_fee_paid, auto_renew, created_at, updated_at
-      ) VALUES (?, ?, ?, 'PENDING', 'MONTHLY', ?, 0, 1, ?, ?)
+      ) VALUES (?, ?, ?, 'ACTIVE', 'MONTHLY', ?, 1, 1, ?, ?)
       ON DUPLICATE KEY UPDATE
+        status = 'ACTIVE',
         plan_id = VALUES(plan_id),
         amount = VALUES(amount),
         updated_at = VALUES(updated_at)
@@ -962,16 +963,25 @@ router.post('/admin/applications/:id/approve', async (req, res) => {
       now, now
     ]);
 
-    // Move application status to PAYMENT_PENDING
+    // Activate tenant and store record so it immediately reflects in active stores list
+    await execute(`
+      UPDATE tenants SET status = 'ACTIVE', store_status = 'OPEN', updated_at = ? WHERE id = ?
+    `, [now, app.tenant_id]).catch(() => {});
+
+    await execute(`
+      UPDATE stores SET status = 'ACTIVE', store_status = 'OPEN', updated_at = ? WHERE id = ? OR id = 'store_royal_001'
+    `, [now, app.tenant_id]).catch(() => {});
+
+    // Update application status to APPROVED & ACTIVATED
     await execute(`
       UPDATE store_applications SET
-        status = 'PAYMENT_PENDING',
+        status = 'APPROVED',
         review_notes = ?,
         reviewed_by = ?,
         reviewed_at = ?,
         updated_at = ?
       WHERE id = ?
-    `, [review_notes || 'Application Approved! Platform invoice generated. Awaiting subscription payment to activate store.', approved_by, now, now, req.params.id]);
+    `, [review_notes || 'Application Approved & Store Activated by Company Admin.', approved_by, now, now, req.params.id]);
 
     await logAuditEvent({
       tenantId: app.tenant_id,
@@ -979,7 +989,7 @@ router.post('/admin/applications/:id/approve', async (req, res) => {
       entityType: 'APPLICATION',
       entityId: app.id,
       newValues: {
-        status: 'PAYMENT_PENDING',
+        status: 'APPROVED',
         approved_by,
         invoice_number: invoiceNumber,
         total_amount: pricing.grand_total
@@ -988,8 +998,8 @@ router.post('/admin/applications/:id/approve', async (req, res) => {
 
     res.json({
       success: true,
-      message: `Store application #${app.application_number} approved! Platform invoice ${invoiceNumber} issued for ₹${pricing.grand_total.toLocaleString('en-IN')}. Payment is now pending.`,
-      status: 'PAYMENT_PENDING',
+      message: `Store application #${app.application_number} approved! Store "${app.store_name}" is now ACTIVE. Platform invoice ${invoiceNumber} generated.`,
+      status: 'APPROVED',
       invoice_id: invoiceId,
       invoice_number: invoiceNumber,
       pricing
@@ -2126,6 +2136,15 @@ router.get('/admin/settings', async (req, res) => {
         upi_id: 'digi8solutions@okhdfcbank',
         invoice_prefix: 'INV-SAAS'
       };
+    if (!settings.payment_gateway) {
+      settings.payment_gateway = {
+        razorpay_key_id: '',
+        razorpay_key_secret: '',
+        razorpay_webhook_secret: '',
+        live_mode: false,
+        auto_capture: true,
+        commission_percent: 2.0
+      };
     }
 
     res.json(settings);
@@ -2136,7 +2155,7 @@ router.get('/admin/settings', async (req, res) => {
 
 router.put('/admin/settings', async (req, res) => {
   try {
-    const { company_profile, billing_bank_details } = req.body;
+    const { company_profile, billing_bank_details, payment_gateway } = req.body;
     const now = new Date().toISOString();
 
     if (company_profile) {
@@ -2153,12 +2172,19 @@ router.put('/admin/settings', async (req, res) => {
       );
     }
 
+    if (payment_gateway) {
+      await execute(
+        'INSERT INTO platform_settings (key_name, value, updated_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value), updated_at = VALUES(updated_at)',
+        ['payment_gateway', JSON.stringify(payment_gateway), now]
+      );
+    }
+
     await logAuditEvent({
       tenantId: 'PLATFORM_GLOBAL',
       action: 'PLATFORM_SETTINGS_UPDATED_BY_SUPER_ADMIN',
       entityType: 'SETTINGS',
       entityId: 'global',
-      newValues: { company_profile, billing_bank_details }
+      newValues: { company_profile, billing_bank_details, payment_gateway }
     });
 
     res.json({ success: true, message: 'Platform settings saved successfully.' });

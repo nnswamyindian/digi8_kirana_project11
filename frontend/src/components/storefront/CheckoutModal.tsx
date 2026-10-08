@@ -191,6 +191,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         : `${houseNumber.trim()}, ${street.trim()}, ${areaName || validatedArea?.area_name || ''}, ${city}, ${stateName} - ${pincode}${landmark ? ` (Landmark: ${landmark.trim()})` : ''}`;
 
       const payload = {
+        store_id: store.id,
+        tenant_id: store.id,
         items: items.map(it => ({
           product_id: it.product.id,
           quantity: it.quantity,

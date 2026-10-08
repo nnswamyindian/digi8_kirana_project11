@@ -34,7 +34,7 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const [paperWidth, setPaperWidth] = React.useState<'58mm' | '80mm'>(store?.printer_width || '80mm');
+  const [paperWidth, setPaperWidth] = React.useState<'58mm' | '80mm'>(store?.printer_width || '58mm');
   const qrCanvasRef = useRef<HTMLCanvasElement>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
 

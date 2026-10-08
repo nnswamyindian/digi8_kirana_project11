@@ -67,7 +67,29 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
   onRefreshData,
 }) => {
   const { language, t } = useLanguage();
-  const [cart, setCart] = useState<PosCartItem[]>([]);
+  const [mobilePosTab, setMobilePosTab] = useState<'catalog' | 'billing'>('catalog');
+  const [cart, setCart] = useState<PosCartItem[]>(() => {
+    try {
+      const saved = localStorage.getItem(`pos_cart_${store?.id || 'default'}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
+
+  // Automatically persist draft cart to localStorage so items never vanish
+  useEffect(() => {
+    try {
+      const storageKey = `pos_cart_${store?.id || 'default'}`;
+      if (cart.length > 0) {
+        localStorage.setItem(storageKey, JSON.stringify(cart));
+      } else {
+        localStorage.removeItem(storageKey);
+      }
+    } catch (e) {}
+  }, [cart, store?.id]);
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -585,6 +607,7 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
       // Open receipt modal for thermal printing
       onOpenReceipt(receipt);
       clearCart();
+      setMobilePosTab('catalog');
       onRefreshData();
     } catch (err) {
       alert('Error finalizing sale: ' + err);
@@ -615,7 +638,7 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
   });
 
   return (
-    <div className="pos-layout">
+    <div className={`pos-layout ${mobilePosTab === 'catalog' ? 'pos-mobile-show-catalog' : 'pos-mobile-show-billing'}`}>
       {/* LEFT: Catalog Grid & Search */}
       <div className="pos-catalog-panel">
         {/* Scan Alerts: Distinguish Network Error vs Inactive/Stock */}
@@ -854,10 +877,38 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
             );
           })}
         </div>
+
+        {/* Mobile Zepto-Style Bottom Floating Bar (Appears when items are in cart) */}
+        {cart.length > 0 && (
+          <div className="pos-mobile-zepto-bar">
+            <div className="pos-zepto-summary">
+              <span className="pos-zepto-badge">🛒 {cart.length} ITEMS (₹{grandTotal.toFixed(2)})</span>
+              <span className="pos-zepto-price">₹{grandTotal.toFixed(2)}</span>
+              <span className="pos-zepto-sub">Tap to review & proceed to pay</span>
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary pos-zepto-pay-btn"
+              onClick={() => setMobilePosTab('billing')}
+            >
+              Pay / Bill →
+            </button>
+          </div>
+        )}
       </div>
 
       {/* RIGHT: Active Billing Cart & Payment Panel */}
       <div className="pos-billing-panel">
+        {/* Mobile: Back to Catalog Bar */}
+        <div className="pos-mobile-back-bar">
+          <button
+            type="button"
+            className="pos-zepto-back-btn"
+            onClick={() => setMobilePosTab('catalog')}
+          >
+            ← + Add More Products (Cart Preserved)
+          </button>
+        </div>
         {/* Cashier Bar */}
         <div className="pos-bill-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

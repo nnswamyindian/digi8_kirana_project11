@@ -149,7 +149,19 @@ export interface DeliveryArea {
   updated_at?: string;
 }
 
-export type UserRole = 'OWNER' | 'SUB_ADMIN' | 'CASHIER' | 'STOCK_MANAGER' | 'DELIVERY_BOY' | 'DELIVERY_AGENT' | 'PLATFORM_ADMIN';
+export type UserRole =
+  | 'OWNER'
+  | 'STORE_OWNER'
+  | 'STORE_MANAGER'
+  | 'MANAGER'
+  | 'ADMIN'
+  | 'STORE_ADMIN'
+  | 'SUB_ADMIN'
+  | 'CASHIER'
+  | 'STOCK_MANAGER'
+  | 'DELIVERY_BOY'
+  | 'DELIVERY_AGENT'
+  | 'PLATFORM_ADMIN';
 
 export type UserPermission =
   | '*'

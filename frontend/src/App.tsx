@@ -53,6 +53,26 @@ import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 import { AlertTriangle, Sparkles, Scale, CheckCircle2 } from 'lucide-react';
 
+export const STORE_ADMIN_SLUGS = [
+  'dashboard', 'pos', 'orders', 'fleet', 'payments', 'delivery-areas',
+  'products', 'categories', 'inventory', 'purchases', 'customers',
+  'staff', 'reports', 'domains', 'subscription', 'support', 'settings'
+];
+
+export const PLATFORM_ADMIN_SLUGS = [
+  'platform-dashboard', 'platform-stores', 'platform-applications',
+  'platform-subscriptions', 'platform-payments', 'platform-projects',
+  'platform-reports', 'platform-domains', 'platform-users',
+  'platform-database', 'platform-settings', 'platform-audit-logs',
+  'platform-support', 'platform-health'
+];
+
+export const ALL_SYSTEM_SLUGS = [
+  'demo', 'admin', 'platform-admin', 'store', 'delivery', 'delivery-login', 'home', 'api', 'assets', '',
+  ...STORE_ADMIN_SLUGS,
+  ...PLATFORM_ADMIN_SLUGS
+];
+
 export const App: React.FC = () => {
   const { language, t } = useLanguage();
   // App Mode: Public SaaS Landing vs Storefront vs Admin Portal vs Delivery Boy Portal
@@ -65,12 +85,12 @@ export const App: React.FC = () => {
       const path = window.location.pathname.toLowerCase().replace(/^\/|\/$/g, '');
       const search = new URLSearchParams(window.location.search);
       if (search.get('view') === 'demo' || path === 'demo') return 'storefront';
+      if (STORE_ADMIN_SLUGS.includes(path) || PLATFORM_ADMIN_SLUGS.includes(path)) return 'admin';
       if (search.get('view') === 'admin' || path === 'admin' || path === 'platform-admin' || path.startsWith('admin/')) return 'admin';
       if (search.get('view') === 'delivery' || path === 'delivery' || path === 'delivery-login') return 'delivery';
       if (path === 'store' || path.startsWith('store/')) return 'admin';
       // Path-based storefront: /{slug} — single segment that's not a known system route
-      const systemRoutes = ['demo', 'admin', 'platform-admin', 'store', 'delivery', 'delivery-login', 'home', 'api', 'assets', ''];
-      if (path && !systemRoutes.includes(path) && !path.includes('/')) {
+      if (path && !ALL_SYSTEM_SLUGS.includes(path) && !path.includes('/')) {
         return 'storefront'; // Will be hydrated in useEffect
       }
       const hostParts = window.location.hostname.split('.');
@@ -84,7 +104,16 @@ export const App: React.FC = () => {
   });
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [customerUser, setCustomerUser] = useState<CustomerUser | null>(null);
-  const [adminTab, setAdminTab] = useState<string>('dashboard');
+  const [adminTab, setAdminTab] = useState<string>(() => {
+    try {
+      const path = window.location.pathname.toLowerCase().replace(/^\/|\/$/g, '');
+      if (STORE_ADMIN_SLUGS.includes(path)) return path;
+      if (PLATFORM_ADMIN_SLUGS.includes(path)) return path;
+      if (path === 'admin' || path === 'platform-admin' || path.startsWith('admin/')) return 'platform-dashboard';
+      if (path === 'store' || path.startsWith('store/')) return 'dashboard';
+    } catch {}
+    return 'dashboard';
+  });
   // Super Admin Platform vs Store Context Isolation State
   const [platformStoreContext, setPlatformStoreContext] = useState<string | null>(null);
   const [platformTenants, setPlatformTenants] = useState<Tenant[]>([]);
@@ -211,15 +240,33 @@ export const App: React.FC = () => {
     }
   };
 
+  // Update admin tab and sync browser address bar slug
+  const handleAdminTabChange = (tab: string) => {
+    setAdminTab(tab);
+    try {
+      const targetSlug = `/${tab}`;
+      if (window.location.pathname !== targetSlug) {
+        window.history.pushState({ tab, view: 'admin' }, '', targetSlug);
+      }
+    } catch (e) {
+      console.warn('Could not update browser URL slug', e);
+    }
+  };
+
   useEffect(() => {
     loadInitialData();
 
     // Listen to browser Back/Forward navigation
     const handlePopState = () => {
       const path = window.location.pathname.toLowerCase().replace(/^\/|\/$/g, '');
-      const systemRoutes = ['demo', 'admin', 'platform-admin', 'store', 'delivery', 'delivery-login', 'home', 'api', 'assets', ''];
       if (path === '' || path === 'home') {
         setCurrentView('landing');
+      } else if (STORE_ADMIN_SLUGS.includes(path)) {
+        setCurrentView('admin');
+        setAdminTab(path);
+      } else if (PLATFORM_ADMIN_SLUGS.includes(path)) {
+        setCurrentView('admin');
+        setAdminTab(path);
       } else if (path === 'demo' || path.startsWith('storefront')) {
         setCurrentView('storefront');
       } else if (path === 'admin' || path === 'platform-admin' || path.startsWith('admin/')) {
@@ -231,7 +278,7 @@ export const App: React.FC = () => {
         setAdminTab('dashboard');
       } else if (path === 'delivery' || path === 'delivery-login') {
         setCurrentView('delivery');
-      } else if (path && !systemRoutes.includes(path) && !path.includes('/')) {
+      } else if (path && !ALL_SYSTEM_SLUGS.includes(path) && !path.includes('/')) {
         // /{slug} — path-based storefront navigation
         navigateToStorefront(path);
       }
@@ -246,6 +293,12 @@ export const App: React.FC = () => {
     const rawPath = window.location.pathname.toLowerCase().replace(/^\/|\/$/g, '');
     if (rawPath === '' || rawPath === 'home' || viewParam === 'landing') {
       setCurrentView('landing');
+    } else if (STORE_ADMIN_SLUGS.includes(rawPath)) {
+      setCurrentView('admin');
+      setAdminTab(rawPath);
+    } else if (PLATFORM_ADMIN_SLUGS.includes(rawPath)) {
+      setCurrentView('admin');
+      setAdminTab(rawPath);
     } else if (rawPath === 'demo' || viewParam === 'demo') {
       setCurrentView('storefront');
     } else if (rawPath === 'admin' || rawPath === 'platform-admin' || viewParam === 'platform' || viewParam === 'admin') {
@@ -261,7 +314,7 @@ export const App: React.FC = () => {
       setAdminTab('dashboard');
     } else if (rawPath === 'delivery' || rawPath === 'delivery-login' || viewParam === 'delivery') {
       setCurrentView('delivery');
-    } else if (rawPath && !['api', 'assets', 'store'].includes(rawPath) && !rawPath.includes('/')) {
+    } else if (rawPath && !ALL_SYSTEM_SLUGS.includes(rawPath) && !rawPath.includes('/')) {
       // Path-based tenant storefront routing: manakiranakottu.digi8solutions.com/{slug}
       api.resolveTenant(rawPath).then(resolveRes => {
         if (resolveRes.success && resolveRes.tenant) {
@@ -298,12 +351,19 @@ export const App: React.FC = () => {
           setCurrentView('delivery');
         } else if (user.role === 'PLATFORM_ADMIN') {
           setCurrentView('admin');
-          setAdminTab('platform-dashboard');
+          const rawP = window.location.pathname.toLowerCase().replace(/^\/|\/$/g, '');
+          if (!PLATFORM_ADMIN_SLUGS.includes(rawP) && !STORE_ADMIN_SLUGS.includes(rawP)) {
+            setAdminTab('platform-dashboard');
+          }
           setPlatformStoreContext(null);
           api.getPlatformTenants().then(setPlatformTenants).catch(() => {});
         } else {
           if (user.tenant_id) await handleSwitchTenant(user.tenant_id);
           setCurrentView('admin');
+          const rawP = window.location.pathname.toLowerCase().replace(/^\/|\/$/g, '');
+          if (!STORE_ADMIN_SLUGS.includes(rawP)) {
+            setAdminTab('dashboard');
+          }
         }
       }
     }).catch(() => {});
@@ -748,20 +808,27 @@ export const App: React.FC = () => {
            ==================================================== */
         <AdminLayout
           activeTab={adminTab}
-          onTabChange={(tab) => setAdminTab(tab)}
+          onTabChange={handleAdminTabChange}
           store={store}
           currentUser={currentUser}
           onToggleStoreStatus={handleToggleStoreStatus}
           newOrderAlertCount={newOrderAlertCount}
           onClearOrderAlerts={() => setNewOrderAlertCount(0)}
-          onSwitchToStorefront={() => setCurrentView('storefront')}
-          onSwitchToLanding={() => setCurrentView('landing')}
+          onSwitchToStorefront={() => {
+            setCurrentView('storefront');
+            window.history.pushState({}, '', store.slug ? `/${store.slug}` : '/demo');
+          }}
+          onSwitchToLanding={() => {
+            setCurrentView('landing');
+            window.history.pushState({}, '', '/');
+          }}
           onLogout={() => {
             api.logout();
             setCurrentUser(null);
             setPlatformStoreContext(null);
-            setCurrentView('storefront');
+            setCurrentView('landing');
             setAdminTab('dashboard');
+            window.history.pushState({}, '', '/');
           }}
           onSwitchTenant={handleSelectStoreContext}
           onOpenOnboarding={() => setIsOnboardingOpen(true)}
@@ -886,7 +953,7 @@ export const App: React.FC = () => {
           {adminTab === 'dashboard' && (
             <DashboardOverview
               store={store}
-              onNavigateToTab={(tab) => setAdminTab(tab)}
+              onNavigateToTab={handleAdminTabChange}
               onPrintOrderReceipt={(order) => {
                 const receipt: ReceiptData = {
                   store_name: store.name,
