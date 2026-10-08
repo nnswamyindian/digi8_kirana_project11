@@ -1,0 +1,24 @@
+{
+  "name": "kirana-backend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "server": "node --watch index.js",
+    "dev": "node --watch index.js",
+    "db:init": "node database/initDb.js",
+    "test": "node tests/unit.test.js",
+    "test:unit": "node tests/unit.test.js",
+    "test:integration": "node tests/integration.test.js",
+    "test:logins": "node test_all_logins.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.5",
+    "express": "^5.2.1",
+    "mysql2": "^3.24.4",
+    "qrcode": "^1.5.4",
+    "xlsx": "^0.18.5"
+  }
+}

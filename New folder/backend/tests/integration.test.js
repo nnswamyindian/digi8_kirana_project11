@@ -51,25 +51,12 @@ async function runIntegrationTests() {
   console.log(`📊 INTEGRATION TEST RESULTS: ${passed} PASSED, ${failed} FAILED`);
   console.log('====================================================\n');
 
-  try {
-    const pool = getPool();
-    if (pool && typeof pool.end === 'function') {
-      await pool.end();
-    }
-  } catch (e) {
-    // ignore
-  }
-
   if (failed > 0) {
     process.exit(1);
-  } else {
-    process.exit(0);
   }
 }
 
-runIntegrationTests().then(() => {
-  process.exit(0);
-}).catch(err => {
+runIntegrationTests().catch(err => {
   console.error('Integration Test Failure:', err);
   process.exit(1);
 });

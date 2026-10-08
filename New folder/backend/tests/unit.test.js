@@ -142,14 +142,10 @@ async function runUnitTests() {
 
   if (failed > 0) {
     process.exit(1);
-  } else {
-    process.exit(0);
   }
 }
 
-runUnitTests().then(() => {
-  process.exit(0);
-}).catch(err => {
+runUnitTests().catch(err => {
   console.error('Fatal Unit Test Failure:', err);
   process.exit(1);
 });

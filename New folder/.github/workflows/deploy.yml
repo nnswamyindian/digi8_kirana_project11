@@ -1,0 +1,223 @@
+name: Kirana SaaS - Deploy to VPS
+
+on:
+  workflow_run:
+    workflows: ["Kirana SaaS Platform CI Pipeline"]
+    types:
+      - completed
+    branches:
+      - main
+
+  workflow_dispatch:
+
+concurrency:
+  group: kirana-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Hostinger VPS
+    runs-on: ubuntu-latest
+
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main'
+      )
+
+    steps:
+
+      # ============================================================
+      # DEPLOY APPLICATION TO VPS
+      # ============================================================
+
+      - name: Deploy Application
+        uses: appleboy/ssh-action@v1.2.0
+
+        with:
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          port: ${{ secrets.HOSTINGER_SSH_PORT || 22 }}
+          script_stop: true
+
+          script: |
+
+            set -e
+
+            APP_DIR="/var/www/manakiranakottu"
+
+            echo "======================================"
+            echo "KIRANA SAAS DEPLOYMENT"
+            echo "======================================"
+
+            echo "Application directory:"
+            echo "$APP_DIR"
+
+            cd "$APP_DIR"
+
+            echo "--------------------------------------"
+            echo "1. CURRENT SERVER STATUS"
+            echo "--------------------------------------"
+
+            echo "Current directory:"
+            pwd
+
+            echo "Current Git commit:"
+            git log -1 --oneline || true
+
+            echo "--------------------------------------"
+            echo "2. UPDATING SOURCE CODE"
+            echo "--------------------------------------"
+
+            git fetch origin main
+
+            git reset --hard origin/main
+
+            echo "Latest Git commit:"
+            git log -1 --oneline
+
+            echo "--------------------------------------"
+            echo "3. INSTALLING PROJECT DEPENDENCIES"
+            echo "--------------------------------------"
+
+            cd "$APP_DIR"
+
+            npm ci
+
+            echo "Project dependencies installed successfully."
+
+            echo "--------------------------------------"
+            echo "4. BUILDING FRONTEND"
+            echo "--------------------------------------"
+
+            npm run build
+
+            if [ ! -d "$APP_DIR/frontend/dist" ]; then
+              echo "ERROR: frontend/dist directory was not created."
+              exit 1
+            fi
+
+            if [ ! -f "$APP_DIR/frontend/dist/index.html" ]; then
+              echo "ERROR: frontend/dist/index.html was not created."
+              exit 1
+            fi
+
+            echo "Frontend build successful."
+
+            echo "Frontend build directory:"
+            ls -lah "$APP_DIR/frontend/dist"
+
+            echo "--------------------------------------"
+            echo "5. CHECKING BACKEND"
+            echo "--------------------------------------"
+
+            if [ ! -f "$APP_DIR/backend/.env" ]; then
+              echo "ERROR: backend/.env is missing."
+              exit 1
+            fi
+
+            echo "Backend environment file exists."
+
+            node --check "$APP_DIR/backend/index.js"
+
+            echo "Backend syntax check passed."
+
+            echo "--------------------------------------"
+            echo "6. CHECKING PM2 PROCESS"
+            echo "--------------------------------------"
+
+            pm2 status
+
+            echo "--------------------------------------"
+            echo "7. RESTARTING BACKEND"
+            echo "--------------------------------------"
+
+            pm2 restart manakiranakottu-backend --update-env
+
+            echo "Backend restarted successfully."
+
+            echo "--------------------------------------"
+            echo "8. SAVING PM2 CONFIGURATION"
+            echo "--------------------------------------"
+
+            pm2 save
+
+            echo "PM2 configuration saved."
+
+            echo "--------------------------------------"
+            echo "9. TESTING NGINX CONFIGURATION"
+            echo "--------------------------------------"
+
+            sudo nginx -t
+
+            echo "Nginx configuration is valid."
+
+            echo "--------------------------------------"
+            echo "10. RELOADING NGINX"
+            echo "--------------------------------------"
+
+            sudo systemctl reload nginx
+
+            echo "Nginx reloaded successfully."
+
+            echo "--------------------------------------"
+            echo "11. BACKEND HEALTH CHECK"
+            echo "--------------------------------------"
+
+            PASSED=false
+
+            for i in $(seq 1 15); do
+
+              echo "Health check attempt $i/15..."
+
+              if curl -fsS http://127.0.0.1:5015/api/health; then
+
+                echo ""
+                echo "Backend health check PASSED."
+
+                PASSED=true
+
+                break
+
+              fi
+
+              echo "Backend is not ready yet."
+
+              sleep 2
+
+            done
+
+            if [ "$PASSED" != "true" ]; then
+
+              echo "======================================"
+              echo "ERROR: BACKEND HEALTH CHECK FAILED"
+              echo "======================================"
+
+              echo ""
+              echo "PM2 STATUS:"
+              pm2 status
+
+              echo ""
+              echo "PM2 LOGS:"
+              pm2 logs manakiranakottu-backend --lines 50 --nostream
+
+              exit 1
+
+            fi
+
+            echo "======================================"
+            echo "DEPLOYMENT SUCCESSFUL"
+            echo "======================================"
+
+            echo "Application:"
+            echo "https://manakiranakottu.digi8solutions.com"
+
+            echo "Backend:"
+            echo "127.0.0.1:5015"
+
+            echo "PM2:"
+            echo "manakiranakottu-backend"
+
+            echo "======================================"
