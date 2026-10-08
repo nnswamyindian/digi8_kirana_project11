@@ -2136,6 +2136,7 @@ router.get('/admin/settings', async (req, res) => {
         upi_id: 'digi8solutions@okhdfcbank',
         invoice_prefix: 'INV-SAAS'
       };
+    }
     if (!settings.payment_gateway) {
       settings.payment_gateway = {
         razorpay_key_id: '',
