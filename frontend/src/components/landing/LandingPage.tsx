@@ -142,7 +142,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   ] : [
     {
       q: 'Do I need special computers or barcode scanners to use this?',
-      a: 'No. The platform runs seamlessly in any web browser, tablet, or PC. It supports any standard USB or Bluetooth barcode scanner, weighing scale, and thermal receipt printer (58mm or 80mm) without special drivers.'
+      a: 'No. The platform  seamlessly in any web browser, tablet, or PC. It supports any standard USB or Bluetooth barcode scanner, weighing scale, and thermal receipt printer (58mm or 80mm) without special drivers.'
     },
     {
       q: 'How does the store approval process work?',
