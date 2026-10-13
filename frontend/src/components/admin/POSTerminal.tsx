@@ -46,9 +46,13 @@ import {
   History,
   Pause,
   Play,
+<<<<<<< HEAD
   Clock,
   TrendingUp,
   Layers
+=======
+  Clock
+>>>>>>> 9cc0bae17a370156ab8b15d8fd253d147aaf84f1
 } from 'lucide-react';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { NewProductDetectedModal } from './NewProductDetectedModal';
@@ -1411,9 +1415,13 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
         {/* Touch Tiles Grid with Visual Selected States & Direct Quantity Controls */}
         <div className="pos-grid-items">
           {filteredProducts.map(p => {
+<<<<<<< HEAD
             const isLoose = p.category_id === 'cat_loose_items' ||
                             Boolean(p.is_loose) ||
                             ['KG', 'GRAM', 'LITRE', 'ML'].includes((p.unit || '').toUpperCase());
+=======
+            const isLoose = p.is_loose || p.unit === 'KG';
+>>>>>>> 9cc0bae17a370156ab8b15d8fd253d147aaf84f1
             const cartItem = cart.find(it => it.product.id === p.id);
             const isSelected = Boolean(cartItem && cartItem.quantity > 0);
             const selectedQty = cartItem ? cartItem.quantity : 0;
@@ -1422,12 +1430,17 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
             return (
               <div
                 key={p.id}
+<<<<<<< HEAD
                 className={`pos-item-tile ${isSelected ? 'selected' : ''} ${isLoose ? 'pos-loose-tile' : ''}`}
+=======
+                className={`pos-item-tile ${isSelected ? 'selected' : ''}`}
+>>>>>>> 9cc0bae17a370156ab8b15d8fd253d147aaf84f1
                 onClick={() => {
                   if (isLoose) openLooseItemModal(p);
                   else addToCart(p, 1);
                 }}
               >
+<<<<<<< HEAD
                 {/* Loose good badge */}
                 {isLoose && (
                   <div style={{
@@ -1450,11 +1463,17 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
                   </div>
                 )}
 
+=======
+>>>>>>> 9cc0bae17a370156ab8b15d8fd253d147aaf84f1
                 {/* Visual selected indicator with checkmark */}
                 {isSelected && (
                   <div className="pos-tile-selected-badge">
                     <span>✓</span>
+<<<<<<< HEAD
                     <span>{isLoose ? formatDisplayQuantity(selectedQty, cartItem?.unit || p.unit) : `${selectedQty} in Cart`}</span>
+=======
+                    <span>{isLoose ? `${selectedQty.toFixed(2)} KG` : `${selectedQty} in Cart`}</span>
+>>>>>>> 9cc0bae17a370156ab8b15d8fd253d147aaf84f1
                   </div>
                 )}
 
@@ -1473,19 +1492,32 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
                     <button
                       type="button"
                       className="pos-stepper-btn minus"
+<<<<<<< HEAD
                       onClick={() => updateCartItemQty(cartItem?.line_item_id || p.id, selectedQty - step)}
+=======
+                      onClick={() => updateCartItemQty(p.id, selectedQty - step)}
+>>>>>>> 9cc0bae17a370156ab8b15d8fd253d147aaf84f1
                       aria-label={`Decrease ${p.name}`}
                     >
                       -
                     </button>
+<<<<<<< HEAD
                     <span className="pos-stepper-qty" style={{ fontSize: isLoose ? '0.72rem' : '0.8rem' }}>
                       {isLoose ? formatDisplayQuantity(selectedQty, cartItem?.unit || p.unit) : selectedQty}
+=======
+                    <span className="pos-stepper-qty">
+                      {isLoose ? selectedQty.toFixed(2) : selectedQty}
+>>>>>>> 9cc0bae17a370156ab8b15d8fd253d147aaf84f1
                     </span>
                     <button
                       type="button"
                       className="pos-stepper-btn plus"
                       onClick={() => {
+<<<<<<< HEAD
                         if (isLoose) openLooseItemModal(p);
+=======
+                        if (isLoose) openScaleModal(p);
+>>>>>>> 9cc0bae17a370156ab8b15d8fd253d147aaf84f1
                         else addToCart(p, 1);
                       }}
                       aria-label={`Increase ${p.name}`}
@@ -1499,11 +1531,19 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
                     className="pos-tile-add-btn"
                     onClick={(e) => {
                       e.stopPropagation();
+<<<<<<< HEAD
                       if (isLoose) openLooseItemModal(p);
                       else addToCart(p, 1);
                     }}
                   >
                     {isLoose ? '⚖️ Weight' : '+ Add'}
+=======
+                      if (isLoose) openScaleModal(p);
+                      else addToCart(p, 1);
+                    }}
+                  >
+                    + Add
+>>>>>>> 9cc0bae17a370156ab8b15d8fd253d147aaf84f1
                   </button>
                 )}
               </div>
@@ -1552,6 +1592,7 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+<<<<<<< HEAD
             <button
               type="button"
               className="btn-sm"
@@ -1573,6 +1614,8 @@ export const POSTerminal: React.FC<POSTerminalProps> = ({
             >
               <PlusCircle size={13} /> {language === 'te' ? '+ సరుకు' : '+ Item'}
             </button>
+=======
+>>>>>>> 9cc0bae17a370156ab8b15d8fd253d147aaf84f1
             {cart.length > 0 && !editingOrder && (
               <button
                 type="button"

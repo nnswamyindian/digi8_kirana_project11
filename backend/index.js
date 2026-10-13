@@ -1607,8 +1607,12 @@ app.put('/api/orders/:id/update-bill', async (req, res) => {
     const newQtyMap = new Map();
     for (const it of items) {
       const prev = newQtyMap.get(it.product_id) || 0;
+<<<<<<< HEAD
       const effectiveQty = it.base_quantity !== undefined ? Number(it.base_quantity) : Number(it.quantity);
       newQtyMap.set(it.product_id, prev + effectiveQty);
+=======
+      newQtyMap.set(it.product_id, prev + Number(it.quantity));
+>>>>>>> 9cc0bae17a370156ab8b15d8fd253d147aaf84f1
     }
 
     // 2. Reconcile stock for each affected product in real time
@@ -1676,9 +1680,13 @@ app.put('/api/orders/:id/update-bill', async (req, res) => {
       const originalPrice = prod ? Number(prod.selling_price) : Number(item.unit_price);
       const unitPrice = Number(item.unit_price) || originalPrice;
       const costPrice = Number(item.cost_price || (prod ? prod.purchase_cost : 0));
+<<<<<<< HEAD
       const isPriceIncrease = unitPrice > originalPrice;
       const effectiveBasePrice = isPriceIncrease ? unitPrice : originalPrice;
       const lineGross = Math.round(qty * effectiveBasePrice * 100) / 100;
+=======
+      const lineGross = Math.round(qty * originalPrice * 100) / 100;
+>>>>>>> 9cc0bae17a370156ab8b15d8fd253d147aaf84f1
       subtotalGross += lineGross;
 
       let lineDiscount = Number(item.discount_amount) || 0;

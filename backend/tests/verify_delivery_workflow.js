@@ -58,12 +58,19 @@ async function runDeliveryTests() {
     tenantId: 'store_royal_001'
   });
 
+<<<<<<< HEAD
   const royalSettings = await getOne('SELECT * FROM payment_settings WHERE tenant_id = ?', ['store_royal_001']);
   const expectedRoyalUPI = royalSettings?.store_upi_id || royalSettings?.upi_id || 'apnakirana@okhdfcbank';
   assert.strictEqual(royalQR.success, true, 'QR generation must succeed');
   assert.strictEqual(royalQR.upi_id, expectedRoyalUPI, `Must use store_royal_001 UPI ID (${expectedRoyalUPI})`);
   assert.strictEqual(Number(royalQR.amount), totalAmount, 'QR amount must match order total');
   assert(royalQR.upi_url.includes(encodeURIComponent(expectedRoyalUPI)) || royalQR.upi_url.includes(expectedRoyalUPI), 'UPI URL must contain store UPI');
+=======
+  assert.strictEqual(royalQR.success, true, 'QR generation must succeed');
+  assert.strictEqual(royalQR.upi_id, 'royalkirana@upi', 'Must use store_royal_001 UPI ID');
+  assert.strictEqual(Number(royalQR.amount), totalAmount, 'QR amount must match order total');
+  assert(royalQR.upi_url.includes('royalkirana%40upi') || royalQR.upi_url.includes('royalkirana@upi'), 'UPI URL must contain store UPI');
+>>>>>>> 9cc0bae17a370156ab8b15d8fd253d147aaf84f1
   assert(royalQR.qr_code_data_url.startsWith('data:image/png;base64,'), 'QR data URL must be high-res PNG');
   console.log(`✓ Royal Kirana dynamic QR generated: UPI ID: "${royalQR.upi_id}", Amount: ₹${royalQR.amount}`);
 
