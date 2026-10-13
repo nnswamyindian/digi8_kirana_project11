@@ -251,11 +251,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   const isPosFocused = activeTab === 'pos';
 
   return (
-<<<<<<< HEAD
     <div className={`admin-shell ${isPosFocused ? 'pos-focused-shell' : ''}`}>
-=======
-    <div className="admin-shell">
->>>>>>> 9cc0bae17a370156ab8b15d8fd253d147aaf84f1
       {/* Mobile / Tablet Drawer Backdrop */}
       {isMobileSidebarOpen && (
         <div
@@ -266,11 +262,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
       )}
 
       {/* Sidebar (Desktop Persistent / Collapsible + Mobile Slide-over Drawer) */}
-<<<<<<< HEAD
       <aside className={`admin-sidebar ${isMobileSidebarOpen ? 'mobile-open' : ''} ${(isDesktopCollapsed || isPosFocused) ? 'collapsed' : ''}`}>
-=======
-      <aside className={`admin-sidebar ${isMobileSidebarOpen ? 'mobile-open' : ''} ${isDesktopCollapsed ? 'collapsed' : ''}`}>
->>>>>>> 9cc0bae17a370156ab8b15d8fd253d147aaf84f1
         {/* Sidebar Brand Header */}
         <div className="sidebar-brand">
           <div style={{

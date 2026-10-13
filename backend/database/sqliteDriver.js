@@ -833,16 +833,11 @@ export function initSqliteDatabase(sqliteDb) {
     sqliteDb.exec('ALTER TABLE notification_events ADD COLUMN read_status INTEGER DEFAULT 0');
   }
 
-<<<<<<< HEAD
   // 2. Ensure UPI & POS permission columns exist on tables
-=======
-  // 2. Ensure UPI columns exist on tables
->>>>>>> 9cc0bae17a370156ab8b15d8fd253d147aaf84f1
   const tenantCols = sqliteDb.pragma('table_info(tenants)');
   if (!tenantCols.some(c => c.name.toLowerCase() === 'upi_id')) {
     sqliteDb.exec('ALTER TABLE tenants ADD COLUMN upi_id TEXT DEFAULT "apnakirana@okhdfcbank"');
   }
-<<<<<<< HEAD
   if (!tenantCols.some(c => c.name.toLowerCase() === 'pos_no_pin_discount')) {
     sqliteDb.exec('ALTER TABLE tenants ADD COLUMN pos_no_pin_discount INTEGER DEFAULT 1');
   }
@@ -852,14 +847,11 @@ export function initSqliteDatabase(sqliteDb) {
   if (!tenantCols.some(c => c.name.toLowerCase() === 'allow_selling_below_cost')) {
     sqliteDb.exec('ALTER TABLE tenants ADD COLUMN allow_selling_below_cost INTEGER DEFAULT 1');
   }
-=======
->>>>>>> 9cc0bae17a370156ab8b15d8fd253d147aaf84f1
 
   const storeCols = sqliteDb.pragma('table_info(stores)');
   if (!storeCols.some(c => c.name.toLowerCase() === 'upi_id')) {
     sqliteDb.exec('ALTER TABLE stores ADD COLUMN upi_id TEXT DEFAULT "apnakirana@okhdfcbank"');
   }
-<<<<<<< HEAD
   if (!storeCols.some(c => c.name.toLowerCase() === 'pos_no_pin_discount')) {
     sqliteDb.exec('ALTER TABLE stores ADD COLUMN pos_no_pin_discount INTEGER DEFAULT 1');
   }
@@ -922,8 +914,6 @@ export function initSqliteDatabase(sqliteDb) {
       lp.gst || 0, lp.stock
     );
   }
-=======
->>>>>>> 9cc0bae17a370156ab8b15d8fd253d147aaf84f1
 
   const payCols = sqliteDb.pragma('table_info(payment_settings)');
   if (!payCols.some(c => c.name.toLowerCase() === 'store_upi_id')) {
