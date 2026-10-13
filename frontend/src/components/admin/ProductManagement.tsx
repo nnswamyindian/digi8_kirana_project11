@@ -33,11 +33,13 @@ import { BulkPriceStockModal } from './BulkPriceStockModal';
 interface ProductManagementProps {
   categories: Category[];
   onOpenBarcodeModal: (product: Product) => void;
+  onRefreshProducts?: () => void;
 }
 
 export const ProductManagement: React.FC<ProductManagementProps> = ({
   categories,
   onOpenBarcodeModal,
+  onRefreshProducts,
 }) => {
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState('');
@@ -203,26 +205,16 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
     setImageUploadError('');
 
     try {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        try {
-          const base64 = reader.result as string;
-          const uploadRes = await api.uploadImage(base64, file.name);
-          setFormData(prev => ({ ...prev, photo_url: uploadRes.url }));
-        } catch (err: any) {
-          console.error('[Upload Error]', err);
-          setImageUploadError(err.message || 'Unable to upload image. Please try again.');
-        } finally {
-          setIsUploadingImage(false);
-        }
-      };
-      reader.onerror = () => {
-        setImageUploadError('Unable to read image file. Please try again.');
-        setIsUploadingImage(false);
-      };
-      reader.readAsDataURL(file);
-    } catch {
-      setImageUploadError('Unable to upload image. Please try again.');
+      const uploadRes = await api.uploadImage(file);
+      if (uploadRes && (uploadRes.url || uploadRes.imageUrl)) {
+        setFormData(prev => ({ ...prev, photo_url: uploadRes.url || uploadRes.imageUrl }));
+      } else {
+        throw new Error('Server did not return a valid image URL');
+      }
+    } catch (err: any) {
+      console.error('[Upload Error]', err);
+      setImageUploadError(err.message || 'Unable to upload image. Please try again.');
+    } finally {
       setIsUploadingImage(false);
     }
   };
@@ -281,6 +273,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
       }
       setIsModalOpen(false);
       loadProducts();
+      onRefreshProducts?.();
     } catch (err: any) {
       alert(err.message || 'Something went wrong while saving the product. Please try again.');
     }
@@ -291,6 +284,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
     try {
       await api.deleteProduct(id);
       loadProducts();
+      onRefreshProducts?.();
     } catch (err) {
       alert('Failed to delete product: ' + err);
     }
@@ -308,6 +302,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
       alert(res.message);
       setIsBulkPriceOpen(false);
       loadProducts();
+      onRefreshProducts?.();
     } catch (err) {
       alert('Error applying bulk price update: ' + err);
     }
@@ -732,36 +727,36 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     )}
                   </div>
 
-                  {/* Pricing Inputs */}
+                  {/* Pricing Inputs - Non-Mandatory Defaults */}
                   <div className="form-group">
-                    <label>Purchase Cost (₹) *</label>
+                    <label>Purchase Cost (₹)</label>
                     <input
                       type="number"
                       step="0.01"
-                      required
-                      value={formData.purchase_cost}
+                      placeholder="0.00 (Optional)"
+                      value={formData.purchase_cost || ''}
                       onChange={(e) => setFormData({ ...formData, purchase_cost: parseFloat(e.target.value) || 0 })}
                     />
                   </div>
 
                   <div className="form-group">
-                    <label>Printed MRP (₹) *</label>
+                    <label>Printed MRP (₹)</label>
                     <input
                       type="number"
                       step="0.01"
-                      required
-                      value={formData.mrp}
+                      placeholder="0.00 (Optional)"
+                      value={formData.mrp || ''}
                       onChange={(e) => setFormData({ ...formData, mrp: parseFloat(e.target.value) || 0 })}
                     />
                   </div>
 
                   <div className="form-group">
-                    <label>Store Selling Price (₹) *</label>
+                    <label>Store Selling Price (₹)</label>
                     <input
                       type="number"
                       step="0.01"
-                      required
-                      value={formData.selling_price}
+                      placeholder="0.00 (Optional)"
+                      value={formData.selling_price || ''}
                       onChange={(e) => setFormData({ ...formData, selling_price: parseFloat(e.target.value) || 0 })}
                     />
                   </div>
@@ -1252,14 +1247,20 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
       <BulkProductImportModal
         isOpen={isBulkImportOpen}
         onClose={() => setIsBulkImportOpen(false)}
-        onImportSuccess={() => loadProducts()}
+        onImportSuccess={() => {
+          loadProducts();
+          onRefreshProducts?.();
+        }}
       />
 
       {/* PHASE 6: BULK PRICE & STOCK UPDATE MODAL */}
       <BulkPriceStockModal
         isOpen={isBulkPriceStockOpen}
         onClose={() => setIsBulkPriceStockOpen(false)}
-        onSuccess={() => loadProducts()}
+        onSuccess={() => {
+          loadProducts();
+          onRefreshProducts?.();
+        }}
       />
     </div>
   );

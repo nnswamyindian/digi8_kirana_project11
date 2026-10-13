@@ -81,11 +81,7 @@ export const UnknownBarcodeModal: React.FC<UnknownBarcodeModalProps> = ({
       setErrorMsg('Product name is required.');
       return;
     }
-    const sellPriceNum = parseFloat(sellingPrice);
-    if (isNaN(sellPriceNum) || sellPriceNum <= 0) {
-      setErrorMsg('Please enter a valid store selling price.');
-      return;
-    }
+    const sellPriceNum = Math.max(0, parseFloat(sellingPrice) || 0);
 
     setIsSubmitting(true);
     setErrorMsg('');

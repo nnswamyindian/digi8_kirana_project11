@@ -1,4 +1,4 @@
-import { query, getOne, execute } from '../db.js';
+import { query, getOne, execute, safeAddCol, isSQLite } from '../db.js';
 
 /**
  * Enterprise Database Migration Manager (MySQL 8+ Engine)
@@ -831,10 +831,25 @@ const migrations = [
         console.warn('[Migration Platform] Note on platform_invoices updated_at:', err.message);
       }
     }
+  },
+  {
+    version: '20260301_009',
+    name: 'store_upi_persistence_and_canonical_mapping',
+    up: async () => {
+      await safeAddCol('tenants', 'upi_id', 'VARCHAR(100) DEFAULT "apnakirana@okhdfcbank"');
+      await safeAddCol('stores', 'upi_id', 'VARCHAR(100) DEFAULT "apnakirana@okhdfcbank"');
+      await safeAddCol('payment_settings', 'store_upi_id', 'VARCHAR(100) DEFAULT "apnakirana@okhdfcbank"');
+      await safeAddCol('payment_settings', 'upi_id', 'VARCHAR(100) DEFAULT "apnakirana@okhdfcbank"');
+      await safeAddCol('payment_settings', 'store_upi_name', 'VARCHAR(150) DEFAULT "Apna Kirana & Supermarket"');
+      await safeAddCol('payment_settings', 'upi_store_name', 'VARCHAR(150) DEFAULT "Apna Kirana & Supermarket"');
+    }
   }
 ];
 
 export async function runMigrations() {
+  if (isSQLite()) {
+    return;
+  }
   try {
     // 1. Ensure schema_migrations table exists
     await execute(`

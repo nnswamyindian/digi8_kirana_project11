@@ -203,29 +203,85 @@ export const OwnerLoginModal: React.FC<OwnerLoginModalProps> = ({
 
   return (
     <div
-      className="modal-backdrop"
+      className="modal-backdrop owner-login-backdrop"
       onClick={onClose}
       style={{
         zIndex: 9999,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '16px',
+        padding: '12px',
         overflowY: 'auto'
       }}
     >
       <style>{`
         .login-tabs-bar::-webkit-scrollbar { display: none; height: 0; width: 0; }
-        .login-scroll-body::-webkit-scrollbar { width: 6px; }
+        .login-scroll-body::-webkit-scrollbar { width: 5px; }
         .login-scroll-body::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         .login-scroll-body::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        .owner-login-header {
+          padding: 16px 20px;
+        }
+        .owner-login-body {
+          padding: 18px 20px;
+        }
+        .owner-login-footer {
+          padding: 14px 20px;
+          display: flex;
+          justify-content: flex-end;
+          align-items: center;
+          gap: 12px;
+        }
+        .demo-account-tile {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 8px 12px;
+          gap: 6px;
+        }
+        
+        @media (max-width: 480px) {
+          .owner-login-backdrop {
+            padding: 8px !important;
+          }
+          .owner-login-header {
+            padding: 12px 14px !important;
+          }
+          .owner-login-header h3 {
+            font-size: 1rem !important;
+          }
+          .owner-login-body {
+            padding: 14px 12px !important;
+            gap: 12px !important;
+          }
+          .login-tabs-bar button {
+            padding: 8px 10px !important;
+            font-size: 0.76rem !important;
+          }
+          .demo-account-tile {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 3px !important;
+          }
+          .owner-login-footer {
+            padding: 12px 14px !important;
+            flex-direction: column-reverse !important;
+            gap: 8px !important;
+            width: 100% !important;
+          }
+          .owner-login-footer button {
+            width: 100% !important;
+            justify-content: center !important;
+          }
+        }
       `}</style>
       <div
         className="modal-card"
         style={{
-          maxWidth: '540px',
+          maxWidth: '520px',
           width: '100%',
-          maxHeight: 'min(92vh, 760px)',
+          maxHeight: 'min(94vh, 760px)',
           display: 'flex',
           flexDirection: 'column',
           borderRadius: '16px',
@@ -237,9 +293,9 @@ export const OwnerLoginModal: React.FC<OwnerLoginModalProps> = ({
       >
         {/* Header with Division Branding */}
         <div
+          className="owner-login-header"
           style={{
             background: `linear-gradient(135deg, ${currentConfig.accentColor}, #0f172a)`,
-            padding: '18px 22px',
             color: 'white',
             display: 'flex',
             justifyContent: 'space-between',
@@ -247,7 +303,7 @@ export const OwnerLoginModal: React.FC<OwnerLoginModalProps> = ({
             flexShrink: 0
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
             <div
               style={{
                 width: '42px',
@@ -366,9 +422,8 @@ export const OwnerLoginModal: React.FC<OwnerLoginModalProps> = ({
           }}
         >
           <div
-            className="login-scroll-body"
+            className="login-scroll-body owner-login-body"
             style={{
-              padding: '18px 22px',
               display: 'flex',
               flexDirection: 'column',
               gap: '15px',
@@ -527,12 +582,9 @@ export const OwnerLoginModal: React.FC<OwnerLoginModalProps> = ({
                   <button
                     key={idx}
                     type="button"
+                    className="demo-account-tile"
                     onClick={() => handleQuickFill(demo.phone, demo.pin)}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '8px 12px',
                       background: mobile === demo.phone ? currentConfig.lightBg : 'white',
                       border: `1px solid ${mobile === demo.phone ? currentConfig.accentColor : '#cbd5e1'}`,
                       borderRadius: '6px',
@@ -577,14 +629,10 @@ export const OwnerLoginModal: React.FC<OwnerLoginModalProps> = ({
 
           {/* Modal Footer Actions */}
           <div
+            className="owner-login-footer"
             style={{
-              padding: '14px 22px',
               background: '#f8fafc',
               borderTop: '1px solid #e2e8f0',
-              display: 'flex',
-              justifyContent: 'flex-end',
-              alignItems: 'center',
-              gap: '12px',
               flexShrink: 0
             }}
           >

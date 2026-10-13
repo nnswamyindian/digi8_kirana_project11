@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { StoreProfile } from '../../types';
 import { thermalPrinter, ReceiptData, PrinterStatus } from '../../services/hardware';
+import { formatDisplayQuantity } from '../../services/pricingService';
 import { api } from '../../services/api';
 import QRCode from 'qrcode';
 import {
@@ -34,7 +35,13 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const [paperWidth, setPaperWidth] = React.useState<'58mm' | '80mm'>(store?.printer_width || '58mm');
+  const [paperWidth, setPaperWidthState] = React.useState<'58mm' | '80mm'>(
+    store?.printer_width || (localStorage.getItem('preferred_printer_width') as '58mm' | '80mm') || '80mm'
+  );
+  const setPaperWidth = (w: '58mm' | '80mm') => {
+    setPaperWidthState(w);
+    try { localStorage.setItem('preferred_printer_width', w); } catch {}
+  };
   const qrCanvasRef = useRef<HTMLCanvasElement>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
 
@@ -52,6 +59,12 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
     });
     return unsubscribe;
   }, [paperWidth]);
+
+  // Compute effective subtotal so price increases reflect the charged amount rather than stale catalog subtotal
+  const computedItemsSum = (receiptData.items || []).reduce((sum, it) => sum + (Number(it.amount) || 0), 0);
+  const displaySubtotal = (receiptData.discount && receiptData.discount > 0)
+    ? Math.max(Number(receiptData.subtotal) || 0, computedItemsSum + receiptData.discount)
+    : Math.max(Number(receiptData.subtotal) || 0, computedItemsSum);
 
   // Robust UPI ID and Store Name fallbacks
   const activeUpiId = receiptData.upi_id || store?.upi_id || 'apnakirana@okhdfcbank';
@@ -406,7 +419,7 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
                 <div key={idx} style={{ marginBottom: '6px' }}>
                   <div style={{ fontWeight: 700 }}>{it.name}</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: '#333' }}>
-                    <span>{it.qty} {it.unit} x ₹{it.rate}</span>
+                    <span>{formatDisplayQuantity(it.qty, it.unit)} x ₹{it.rate}</span>
                     <span style={{ fontWeight: 800 }}>₹{it.amount.toFixed(2)}</span>
                   </div>
                 </div>
@@ -419,7 +432,7 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
             <div style={{ fontSize: '0.825rem', display: 'flex', flexDirection: 'column', gap: '3px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span>Subtotal:</span>
-                <span>₹{receiptData.subtotal.toFixed(2)}</span>
+                <span>₹{displaySubtotal.toFixed(2)}</span>
               </div>
 
               {receiptData.discount > 0 && (

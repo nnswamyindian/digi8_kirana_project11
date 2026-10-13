@@ -105,13 +105,78 @@ export const StoreRegistrationModal: React.FC<StoreRegistrationModalProps> = ({
   };
 
   return (
-    <div className="modal-backdrop" style={{ zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+    <div className="modal-backdrop store-reg-backdrop" style={{ zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px' }}>
+      <style>{`
+        .store-reg-backdrop {
+          padding: 12px;
+        }
+        .store-reg-header {
+          padding: 18px 22px;
+        }
+        .store-reg-form {
+          padding: 22px;
+        }
+        .store-reg-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          gap: 12px;
+        }
+        .store-reg-city-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 12px;
+        }
+        .store-reg-toggles {
+          display: flex;
+          gap: 16px;
+          flex-wrap: wrap;
+        }
+        .store-reg-footer {
+          display: flex;
+          justify-content: flex-end;
+          gap: 12px;
+        }
+        @media (max-width: 580px) {
+          .store-reg-backdrop {
+            padding: 8px !important;
+          }
+          .store-reg-header {
+            padding: 14px 14px !important;
+          }
+          .store-reg-header h2 {
+            font-size: 1.05rem !important;
+          }
+          .store-reg-form {
+            padding: 14px 12px !important;
+          }
+          .store-reg-grid {
+            grid-template-columns: 1fr !important;
+          }
+          .store-reg-city-grid {
+            grid-template-columns: 1fr !important;
+            gap: 8px !important;
+          }
+          .store-reg-toggles {
+            flex-direction: column !important;
+            gap: 10px !important;
+          }
+          .store-reg-footer {
+            flex-direction: column-reverse !important;
+            gap: 8px !important;
+            width: 100% !important;
+          }
+          .store-reg-footer button {
+            width: 100% !important;
+            justify-content: center !important;
+          }
+        }
+      `}</style>
       <div
-        className="modal-content"
+        className="modal-content store-reg-content"
         style={{
           maxWidth: '740px',
           width: '100%',
-          maxHeight: '92vh',
+          maxHeight: '94vh',
           overflowY: 'auto',
           borderRadius: '16px',
           background: '#0f172a',
@@ -121,14 +186,14 @@ export const StoreRegistrationModal: React.FC<StoreRegistrationModalProps> = ({
         }}
       >
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 24px', borderBottom: '1px solid #1e293b' }}>
+        <div className="store-reg-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1e293b' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'linear-gradient(135deg, #16a34a, #0f766e)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'linear-gradient(135deg, #16a34a, #0f766e)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <Store size={22} color="white" />
             </div>
             <div>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'white', margin: 0 }}>Register Your Kirana Store</h2>
-              <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Digi8 Apna Kirana • Multi-Tenant SaaS Platform</span>
+              <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'white', margin: 0 }}>Register Your Kirana Store</h2>
+              <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>Digi8 Apna Kirana • Multi-Tenant SaaS Platform</span>
             </div>
           </div>
           <button
@@ -322,7 +387,7 @@ export const StoreRegistrationModal: React.FC<StoreRegistrationModalProps> = ({
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+              <div className="store-reg-city-grid">
                 <div>
                   <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8', marginBottom: '4px' }}>City</label>
                   <input
@@ -363,7 +428,7 @@ export const StoreRegistrationModal: React.FC<StoreRegistrationModalProps> = ({
                 <Building2 size={15} />
                 <span>3. Business Information & Identifiers</span>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+              <div className="store-reg-grid">
                 <div>
                   <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#cbd5e1', marginBottom: '4px' }}>
                     GST Number (Optional)
@@ -428,7 +493,7 @@ export const StoreRegistrationModal: React.FC<StoreRegistrationModalProps> = ({
                 <Clock size={15} />
                 <span>4. Initial Configuration & Subscription Plan</span>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '12px' }}>
+              <div className="store-reg-grid" style={{ marginBottom: '12px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#cbd5e1', marginBottom: '4px' }}>
                     Requested Plan
@@ -472,7 +537,7 @@ export const StoreRegistrationModal: React.FC<StoreRegistrationModalProps> = ({
               </div>
 
               {/* Delivery and Pickup Toggles */}
-              <div style={{ display: 'flex', gap: '20px', background: '#1e293b', padding: '10px 14px', borderRadius: '8px' }}>
+              <div className="store-reg-toggles" style={{ background: '#1e293b', padding: '10px 14px', borderRadius: '8px' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.8rem', color: '#cbd5e1' }}>
                   <input
                     type="checkbox"
@@ -506,7 +571,7 @@ export const StoreRegistrationModal: React.FC<StoreRegistrationModalProps> = ({
               </label>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+            <div className="store-reg-footer">
               <button
                 type="button"
                 onClick={onClose}

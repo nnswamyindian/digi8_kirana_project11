@@ -51,7 +51,7 @@ import { Tenant } from './types';
 import { useLanguage } from './context/LanguageContext';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 
-import { AlertTriangle, Sparkles, Scale, CheckCircle2 } from 'lucide-react';
+import { AlertTriangle, Sparkles, Scale, CheckCircle2, Bike } from 'lucide-react';
 
 export const STORE_ADMIN_SLUGS = [
   'dashboard', 'pos', 'orders', 'fleet', 'payments', 'delivery-areas',
@@ -382,7 +382,7 @@ export const App: React.FC = () => {
       } else if (eventType === 'price_changed' || eventType === 'bulk_price_updated') {
         // Automatically sync updated prices across website and POS!
         api.getProducts().then(setProducts).catch(console.error);
-      } else if (eventType === 'stock_updated' || eventType === 'pos_sale_completed') {
+      } else if (eventType === 'stock_updated' || eventType === 'pos_sale_completed' || eventType === 'products_updated' || eventType === 'order_updated') {
         api.getProducts().then(setProducts).catch(console.error);
       } else if (eventType === 'store_updated') {
         api.getStore().then(setStore).catch(console.error);
@@ -790,18 +790,51 @@ export const App: React.FC = () => {
             </>
           )}
         </>
-      ) : currentView === 'delivery' && currentUser ? (
+      ) : currentView === 'delivery' ? (
         /* ====================================================
            VIEW 2: DELIVERY BOY MOBILE PORTAL
            ==================================================== */
-        <DeliveryBoyPortal
-          currentUser={currentUser}
-          onLogout={() => {
-            api.logout();
-            setCurrentUser(null);
-            setCurrentView('storefront');
-          }}
-        />
+        currentUser ? (
+          <DeliveryBoyPortal
+            currentUser={currentUser}
+            onLogout={() => {
+              api.logout();
+              setCurrentUser(null);
+              setCurrentView('storefront');
+            }}
+          />
+        ) : (
+          <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', padding: '20px' }}>
+            <div style={{ maxWidth: '420px', width: '100%', background: 'white', padding: '36px 28px', borderRadius: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.06)', textAlign: 'center', border: '1px solid #e2e8f0' }}>
+              <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: '#fffbeb', color: '#d97706', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                <Bike size={32} />
+              </div>
+              <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>
+                Delivery Partner Portal
+              </h2>
+              <p style={{ fontSize: '0.875rem', color: '#64748b', marginBottom: '24px', lineHeight: 1.5 }}>
+                Sign in with your registered phone number & PIN to view assigned delivery tasks, show dynamic store UPI QR codes, collect cash, and update order statuses.
+              </p>
+              <button
+                className="btn btn-primary"
+                style={{ width: '100%', padding: '12px', fontSize: '0.95rem', fontWeight: 700, background: '#d97706', borderColor: '#d97706' }}
+                onClick={() => {
+                  setStaffLoginMode('DELIVERY');
+                  setIsLoginOpen(true);
+                }}
+              >
+                Sign In as Delivery Rider
+              </button>
+              <button
+                className="btn btn-secondary"
+                style={{ width: '100%', marginTop: '12px', fontSize: '0.85rem' }}
+                onClick={() => setCurrentView('landing')}
+              >
+                Back to Home
+              </button>
+            </div>
+          </div>
+        )
       ) : (
         /* ====================================================
            VIEW 3: OWNER ADMIN DASHBOARD & POS BILLING
@@ -1000,6 +1033,7 @@ export const App: React.FC = () => {
             <ProductManagement
               categories={categories}
               onOpenBarcodeModal={(prod) => setBarcodeModalProduct(prod)}
+              onRefreshProducts={loadInitialData}
             />
           )}
 

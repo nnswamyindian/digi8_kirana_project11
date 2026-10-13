@@ -146,7 +146,7 @@ export class EscPosEncoder {
 // 2. THERMAL PRINTER ADAPTER (BLUETOOTH, USB, SERIAL & BROWSER)
 // ----------------------------------------------------
 export class ThermalPrinterAdapter {
-  private width: '58mm' | '80mm' = '58mm';
+  private width: '58mm' | '80mm' = '80mm';
   private mode: PrinterConnectionMode = 'BROWSER';
   private deviceName: string | null = null;
   private isConnected: boolean = false;
@@ -160,7 +160,7 @@ export class ThermalPrinterAdapter {
   private serialPort: any = null;
   private serialWriter: any = null;
 
-  constructor(width: '58mm' | '80mm' = '58mm') {
+  constructor(width: '58mm' | '80mm' = '80mm') {
     this.width = width;
   }
 
@@ -520,7 +520,12 @@ export class ThermalPrinterAdapter {
       return left + ' '.repeat(pad) + right;
     };
 
-    encoder.line(formatRow('Subtotal:', `Rs.${data.subtotal.toFixed(2)}`));
+    const itemsSum = (data.items || []).reduce((sum, it) => sum + (Number(it.amount) || 0), 0);
+    const effectiveSubtotal = (data.discount && data.discount > 0)
+      ? Math.max(Number(data.subtotal) || 0, itemsSum + data.discount)
+      : Math.max(Number(data.subtotal) || 0, itemsSum);
+
+    encoder.line(formatRow('Subtotal:', `Rs.${effectiveSubtotal.toFixed(2)}`));
     if (data.discount > 0) {
       encoder.line(formatRow('Discount Savings:', `-Rs.${data.discount.toFixed(2)}`));
     }

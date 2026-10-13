@@ -73,19 +73,35 @@ export function getHeaders(extra: Record<string, string> = {}): Record<string, s
 }
 
 export async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  const headers = getHeaders((options.headers as Record<string, string>) || {});
+  const extraHeaders = { ...((options.headers as Record<string, string>) || {}) };
+  // If sending FormData, do not set Content-Type header so the browser sets multipart/form-data with proper boundary
+  if (options.body instanceof FormData) {
+    delete extraHeaders['Content-Type'];
+  }
+  const headers = getHeaders(extraHeaders);
+  if (options.body instanceof FormData) {
+    delete headers['Content-Type'];
+  }
   return fetch(url, { ...options, headers });
 }
 
 export async function safeParseResponse(res: Response): Promise<any> {
   try {
+    const contentType = res.headers.get('content-type') || '';
     const text = await res.text();
     if (!text || !text.trim()) {
       return { error: `Server returned empty response (HTTP ${res.status})` };
     }
-    return JSON.parse(text);
-  } catch {
-    return { error: `Server error: Unexpected non-JSON response (HTTP ${res.status})` };
+    if (contentType.includes('application/json') || text.trim().startsWith('{') || text.trim().startsWith('[')) {
+      return JSON.parse(text);
+    }
+    // If server returned HTML (e.g. 404/500/504 page)
+    return {
+      error: `Server returned unexpected response (HTTP ${res.status}). Upload or API service might be unavailable.`,
+      rawText: text.substring(0, 200)
+    };
+  } catch (err: any) {
+    return { error: `Unable to parse server response (HTTP ${res.status}): ${err.message}` };
   }
 }
 
@@ -103,7 +119,14 @@ export const api = {
     try {
       const res = await apiFetch(`${BASE_URL}/store`);
       if (!res.ok) throw new Error('Failed to fetch store profile');
-      return await res.json();
+      const data = await safeParseResponse(res);
+      if (data && !data.error) {
+        try {
+          localStorage.setItem(`kirana_store_${activeTenantId}`, JSON.stringify(data));
+        } catch {}
+        return data;
+      }
+      throw new Error(data?.error || 'Failed to parse store profile');
     } catch {
       const localStore = localStorage.getItem(`kirana_store_${activeTenantId}`);
       if (localStore) {
@@ -115,14 +138,17 @@ export const api = {
     }
   },
 
-  async updateStore(data: Partial<StoreProfile>): Promise<{ success: boolean; message: string }> {
+  async updateStore(data: Partial<StoreProfile>): Promise<{ success: boolean; message: string; data?: any }> {
     const res = await apiFetch(`${BASE_URL}/store`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    const result = await res.json().catch(() => null);
-    if (!res.ok) throw new Error(result?.error || 'Failed to update store');
+    const result = await safeParseResponse(res);
+    if (!res.ok || result?.error) throw new Error(result?.error || 'Failed to update store');
+    try {
+      localStorage.setItem(`kirana_store_${activeTenantId}`, JSON.stringify({ ...data, ...result?.data }));
+    } catch {}
     return result;
   },
 
@@ -369,6 +395,38 @@ export const api = {
     return res.json();
   },
 
+  // Update an existing POS Bill (Add missed products, reconcile stock & reprint)
+  async updatePosOrder(orderId: string, payload: {
+    items: { product_id: string; product_name: string; unit: string; quantity: number; unit_price: number; original_price?: number; discount_type?: string; discount_value?: number; discount_amount?: number; cost_price?: number; gst_percent?: number }[];
+    customer?: { id?: string; name?: string; phone?: string; credit_balance?: number } | null;
+    discount?: number;
+    payment_method?: string;
+    notes?: string;
+    cashier_name?: string;
+  }): Promise<{
+    success: boolean;
+    order_id: string;
+    order_number: string;
+    invoice_number: string;
+    subtotal: number;
+    discount_amount: number;
+    tax_amount: number;
+    total_amount: number;
+    items: any[];
+    updated_at: string;
+  }> {
+    const res = await apiFetch(`${BASE_URL}/orders/${orderId}/update-bill`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to update bill');
+    }
+    return res.json();
+  },
+
   // Online Store Customer Checkout
   async createOnlineOrder(payload: {
     items: { product_id: string; quantity: number }[];
@@ -404,8 +462,11 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
     });
-    if (!res.ok) throw new Error('Failed to update order status');
-    return res.json();
+    if (!res.ok) {
+      const err = await safeParseResponse(res);
+      throw new Error(err?.error || err?.message || 'Failed to update order status');
+    }
+    return safeParseResponse(res);
   },
 
   // Customers & Khata Ledger
@@ -458,27 +519,39 @@ export const api = {
   // ----------------------------------------------------
   // PHASE 2: IMAGE UPLOAD & HARDWARE
   // ----------------------------------------------------
-  async uploadImage(base64Image: string, filename?: string): Promise<{ success: boolean; url: string; filename: string }> {
-    try {
-      const res = await apiFetch(`${BASE_URL}/upload`, {
+  async uploadImage(fileOrPayload: File | FormData | string, filename?: string): Promise<{ success: boolean; url: string; imageUrl: string; filename: string }> {
+    let res: Response;
+    if (fileOrPayload instanceof FormData) {
+      res = await apiFetch(`${BASE_URL}/upload`, {
+        method: 'POST',
+        body: fileOrPayload,
+      });
+    } else if (fileOrPayload instanceof File) {
+      const formData = new FormData();
+      formData.append('image', fileOrPayload, filename || fileOrPayload.name);
+      res = await apiFetch(`${BASE_URL}/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+    } else {
+      res = await apiFetch(`${BASE_URL}/upload`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: base64Image, filename }),
+        body: JSON.stringify({ image: fileOrPayload, filename }),
       });
-      const data = await safeParseResponse(res);
-      if (!res.ok || data.error) {
-        if (base64Image && (base64Image.startsWith('data:image') || base64Image.startsWith('http'))) {
-          return { success: true, url: base64Image, filename: filename || 'product.jpg' };
-        }
-        throw new Error(data.error || 'Unable to upload image. Please try again.');
-      }
-      return data;
-    } catch (err: any) {
-      if (base64Image && (base64Image.startsWith('data:image') || base64Image.startsWith('http'))) {
-        return { success: true, url: base64Image, filename: filename || 'product.jpg' };
-      }
-      throw err;
     }
+
+    const data = await safeParseResponse(res);
+    if (!res.ok || data.error) {
+      throw new Error(data?.error || data?.message || `Image upload failed (HTTP ${res.status}).`);
+    }
+    const publicUrl = data.url || data.imageUrl;
+    return {
+      success: true,
+      url: publicUrl,
+      imageUrl: publicUrl,
+      filename: data.filename || 'uploaded_image.jpg',
+    };
   },
 
   async checkBarcode(barcode: string, excludeId?: string): Promise<{ exists: boolean; product_name?: string; message?: string }> {
@@ -849,17 +922,32 @@ export const api = {
   async getPaymentSettings(): Promise<PaymentSettings> {
     const res = await apiFetch(`${BASE_URL}/payments/settings`);
     if (!res.ok) throw new Error('Failed to fetch payment settings');
-    return res.json();
+    const data = await safeParseResponse(res);
+    if (data.error) throw new Error(data.error);
+    const resolvedUpi = data.store_upi_id || data.upi_id || '';
+    return {
+      ...data,
+      upi_id: resolvedUpi,
+      store_upi_id: resolvedUpi,
+      upi_store_name: data.store_upi_name || data.upi_store_name || '',
+      store_upi_name: data.store_upi_name || data.upi_store_name || '',
+    };
   },
 
-  async updatePaymentSettings(settings: Partial<PaymentSettings>): Promise<{ success: boolean; message: string }> {
+  async updatePaymentSettings(settings: Partial<PaymentSettings>): Promise<{ success: boolean; message: string; data?: any }> {
+    const resolvedUpi = settings.store_upi_id || settings.upi_id || '';
+    const payload = {
+      ...settings,
+      store_upi_id: resolvedUpi,
+      upi_id: resolvedUpi,
+    };
     const res = await apiFetch(`${BASE_URL}/payments/settings`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(settings),
+      body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to update payment settings');
+    const data = await safeParseResponse(res);
+    if (!res.ok || data.error) throw new Error(data.error || data.message || 'Failed to update payment settings');
     return data;
   },
   async getPaymentReconciliation(params?: { startDate?: string; endDate?: string }): Promise<PaymentReconciliationData> {

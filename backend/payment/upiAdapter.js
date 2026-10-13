@@ -11,18 +11,18 @@ export class UPIAdapter {
     let paySettings = null;
     let store = null;
     if (tenantId) {
-      paySettings = await getOne('SELECT * FROM payment_settings WHERE tenant_id = ?', [tenantId]);
-      store = await getOne('SELECT * FROM tenants WHERE id = ?', [tenantId]);
-    }
-    if (!paySettings) {
-      paySettings = await getOne('SELECT * FROM payment_settings LIMIT 1');
-    }
-    if (!store) {
-      store = await getOne('SELECT * FROM tenants LIMIT 1') || await getOne('SELECT * FROM stores LIMIT 1');
+      paySettings = await getOne('SELECT * FROM payment_settings WHERE tenant_id = ? OR id = ?', [tenantId, 'pay_' + tenantId]);
+      store = await getOne('SELECT * FROM stores WHERE id = ? OR slug = ?', [tenantId, tenantId]);
+      if (!store) {
+        store = await getOne('SELECT * FROM tenants WHERE id = ? OR slug = ?', [tenantId, tenantId]);
+      }
+    } else {
+      paySettings = await getOne('SELECT * FROM payment_settings WHERE tenant_id = "store_royal_001" OR id = "default" LIMIT 1');
+      store = await getOne('SELECT * FROM stores WHERE id = "store_royal_001"') || await getOne('SELECT * FROM tenants WHERE id = "store_royal_001"');
     }
 
-    const upiId = paySettings?.store_upi_id || store?.upi_id || process.env.STORE_UPI_ID || 'apnakirana@okhdfcbank';
-    const storeName = paySettings?.store_upi_name || store?.name || process.env.STORE_UPI_NAME || 'Apna Kirana & Supermarket';
+    const upiId = paySettings?.store_upi_id || paySettings?.upi_id || store?.upi_id || (tenantId === 'store_fresh_002' ? 'freshmart@okhdfcbank' : 'royalkirana@upi');
+    const storeName = paySettings?.store_upi_name || paySettings?.upi_store_name || store?.name || (tenantId === 'store_fresh_002' ? 'Fresh Mart & Daily Needs' : 'Apna Kirana & Supermarket');
     const qrImageUrl = paySettings?.store_upi_qr_url || '';
 
     return { upiId, storeName, qrImageUrl };

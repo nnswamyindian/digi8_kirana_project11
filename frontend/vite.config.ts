@@ -12,11 +12,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:5000',
+        target: process.env.BACKEND_URL || 'http://localhost:5015',
         changeOrigin: true,
       },
       '/uploads': {
-        target: 'http://localhost:5000',
+        target: process.env.BACKEND_URL || 'http://localhost:5015',
         changeOrigin: true,
       },
     },

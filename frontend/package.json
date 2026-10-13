@@ -12,6 +12,7 @@
   "dependencies": {
     "canvas-confetti": "^1.9.4",
     "html5-qrcode": "^2.3.8",
+    "kiranastoresystem": "file:..",
     "lucide-react": "^1.48.0",
     "qrcode": "^1.5.4",
     "react": "^19.3.0",

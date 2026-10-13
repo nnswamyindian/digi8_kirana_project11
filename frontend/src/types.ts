@@ -35,8 +35,44 @@ export interface StoreProfile {
   printer_connection: 'BROWSER_DIRECT' | 'PRINT_BRIDGE';
   cashier_max_discount?: number;
   manager_max_discount?: number;
+  pos_no_pin_discount?: number | boolean;
+  require_pos_pin_for_discount?: number | boolean;
+  allow_selling_below_cost?: number | boolean;
   city?: string;
   updated_at?: string;
+}
+
+export interface PosCartItem {
+  line_item_id?: string;
+  product: Product;
+  quantity: number;
+  unit: string;
+  original_price: number;
+  unit_price: number;
+  discount_type?: 'FLAT' | 'PERCENT';
+  discount_value?: number;
+  discount_amount?: number;
+  discount_percent?: number;
+  is_price_override?: boolean;
+  is_price_increase?: boolean;
+  price_difference?: number;
+  price_difference_percent?: number;
+  is_manual_price_adjusted?: boolean;
+  tax_rate?: number;
+  tax_amount?: number;
+  base_quantity?: number;
+  base_unit?: string;
+  loose_details?: {
+    entered_weight?: number;
+    entered_unit?: string;
+    mode?: 'RATE_BASED' | 'AMOUNT_BASED' | 'MANUAL_TOTAL';
+    agreed_total?: number;
+    rate_per_base_unit?: number;
+  };
+  discount_reason?: string;
+  manager_pin_approved?: boolean;
+  manager_pin?: string;
+  total_price: number;
 }
 
 export interface Category {

@@ -28,9 +28,9 @@ export class NotificationService {
     const now = new Date().toISOString();
 
     await execute(`
-      INSERT INTO notification_events (id, store_id, type, title, message, entity_type, entity_id, read_status, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
-    `, [id, storeId, type, title, message, entityType, entityId, now]);
+      INSERT INTO notification_events (id, store_id, tenant_id, type, event_type, title, message, entity_type, entity_id, read_status, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+    `, [id, storeId, storeId, type, type, title, message, entityType, entityId, now]);
 
     const notif = {
       id,

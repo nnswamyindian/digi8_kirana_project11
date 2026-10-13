@@ -177,13 +177,13 @@ export const StoreNavbar: React.FC<StoreNavbarProps> = ({
       <nav className="main-navbar" style={{ background: 'rgba(255, 255, 255, 0.98)', backdropFilter: 'blur(12px)', borderBottom: '1px solid #e2e8f0' }}>
         <div className="nav-inner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 20px', gap: '16px' }}>
           {/* Logo & Store Branding */}
-          <div className="brand-link" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-            <div className="brand-logo-icon" style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'linear-gradient(135deg, var(--primary-600, #059669), var(--primary-800, #065f46))', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="brand-link" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', minWidth: 0, flexShrink: 1 }}>
+            <div className="brand-logo-icon" style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'linear-gradient(135deg, var(--primary-600, #059669), var(--primary-800, #065f46))', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <Store size={22} />
             </div>
-            <div className="brand-text">
-              <h1 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', margin: 0, lineHeight: 1.2 }}>{store.name}</h1>
-              <span style={{ fontSize: '0.72rem', color: 'var(--primary-600, #059669)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            <div className="brand-text" style={{ minWidth: 0, overflow: 'hidden' }}>
+              <h1 style={{ fontSize: '1.12rem', fontWeight: 800, color: '#0f172a', margin: 0, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{store.name}</h1>
+              <span style={{ fontSize: '0.7rem', color: 'var(--primary-600, #059669)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
                 {store.tagline || (language === 'te' ? 'సూపర్ మార్కెట్ & కిరాణా' : 'Supermarket & Kirana')}
               </span>
             </div>

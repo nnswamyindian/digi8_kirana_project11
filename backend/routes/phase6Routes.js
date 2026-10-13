@@ -4,7 +4,14 @@ import { generateSampleExcelBuffer, validateImportFile, executeBulkImport } from
 import { whatsappService } from '../services/whatsappService.js';
 import { analyticsService } from '../services/analyticsService.js';
 import { logAuditEvent } from '../tenant/tenantMiddleware.js';
-import { barcodeService, logBarcodeAudit } from '../services/barcodeService.js';
+import { barcodeService, normalizeBarcode, logBarcodeAudit } from '../services/barcodeService.js';
+import { notificationService } from '../notifications/notificationService.js';
+import multer from 'multer';
+
+const excelUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 }
+});
 
 const router = express.Router();
 
@@ -25,14 +32,26 @@ router.get('/products/import/template', (req, res) => {
   }
 });
 
-// Validate uploaded Excel file (from Base64 or raw body)
-router.post('/products/import/validate', async (req, res) => {
+// Validate uploaded Excel file (supports Multipart FormData, Base64 JSON, and raw body)
+router.post('/products/import/validate', (req, res, next) => {
+  excelUpload.any()(req, res, (err) => {
+    if (err) return res.status(400).json({ error: 'Upload failed: ' + err.message });
+    next();
+  });
+}, async (req, res) => {
   try {
-    const tenantId = req.tenant?.id || 'store_royal_001';
+    const tenantId = req.tenant?.id || req.headers['x-tenant-id'] || 'store_royal_001';
     let fileBuffer = null;
 
-    if (req.body.fileBase64) {
+    if (req.files && req.files.length > 0 && req.files[0].buffer) {
+      fileBuffer = req.files[0].buffer;
+    } else if (req.file && req.file.buffer) {
+      fileBuffer = req.file.buffer;
+    } else if (req.body && req.body.fileBase64) {
       const base64Data = req.body.fileBase64.replace(/^data:[^;]+;base64,/, '');
+      fileBuffer = Buffer.from(base64Data, 'base64');
+    } else if (req.body && typeof req.body.file === 'string' && req.body.file.startsWith('data:')) {
+      const base64Data = req.body.file.replace(/^data:[^;]+;base64,/, '');
       fileBuffer = Buffer.from(base64Data, 'base64');
     } else if (req.rawBody) {
       fileBuffer = Buffer.from(req.rawBody);
@@ -63,6 +82,29 @@ router.post('/products/import/confirm', async (req, res) => {
     }
 
     const result = await executeBulkImport(rows, tenantId, mode || 'CREATE_AND_UPDATE', req.user);
+
+    // Real-time broadcast to POS terminals, Storefront, and Admin UI
+    notificationService.broadcast('products_updated', {
+      tenant_id: tenantId,
+      created_count: result.createdCount,
+      updated_count: result.updatedCount,
+      timestamp: new Date().toISOString()
+    });
+    notificationService.broadcast('stock_updated', {
+      tenant_id: tenantId,
+      source: 'BULK_IMPORT',
+      timestamp: new Date().toISOString()
+    });
+
+    // Notify Store Owner
+    await notificationService.createNotification({
+      type: 'INVENTORY_IMPORT',
+      title: '📦 Products Catalog Synchronized',
+      message: `Successfully processed ${result.createdCount + result.updatedCount} items (${result.createdCount} created, ${result.updatedCount} updated). Inventory and prices updated in POS & Storefront.`,
+      entityType: 'product',
+      storeId: tenantId
+    }).catch(err => console.warn('[Bulk Import Notif Error]:', err));
+
     res.json(result);
   } catch (err) {
     console.error('[Bulk Import Confirm Error]:', err);
@@ -91,7 +133,7 @@ router.post('/products/from-barcode', async (req, res) => {
   try {
     const tenantId = req.tenant?.id || 'store_royal_001';
     const p = req.body;
-    const cleanBarcode = barcodeService.normalizeBarcode(p.barcode);
+    const cleanBarcode = normalizeBarcode(p.barcode);
 
     if (!cleanBarcode) {
       return res.status(400).json({ error: 'Valid barcode is required.' });
@@ -212,7 +254,7 @@ router.post('/products/assign-barcode', async (req, res) => {
   try {
     const tenantId = req.tenant?.id || 'store_royal_001';
     const { product_id, barcode } = req.body;
-    const cleanBarcode = barcodeService.normalizeBarcode(barcode);
+    const cleanBarcode = normalizeBarcode(barcode);
 
     if (!cleanBarcode) {
       return res.status(400).json({ error: 'Valid barcode is required.' });

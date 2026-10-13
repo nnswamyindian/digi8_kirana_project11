@@ -142,7 +142,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   ] : [
     {
       q: 'Do I need special computers or barcode scanners to use this?',
-      a: 'No. The platform runs seamlessly in any web browser, tablet, or PC. It supports any standard USB or Bluetooth barcode scanner, weighing scale, and thermal receipt printer (58mm or 80mm) without special drivers.'
+      a: 'No. The platform  seamlessly in any web browser, tablet, or PC. It supports any standard USB or Bluetooth barcode scanner, weighing scale, and thermal receipt printer (58mm or 80mm) without special drivers.'
     },
     {
       q: 'How does the store approval process work?',
@@ -163,92 +163,95 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   ];
 
   return (
-    <div style={{ background: '#020617', color: '#f8fafc', minHeight: '100vh', fontFamily: "'Noto Sans Telugu', 'Plus Jakarta Sans', sans-serif" }}>
+    <div className="landing-root" style={{ background: '#020617', color: '#f8fafc', minHeight: '100vh', width: '100%', maxWidth: '100vw', overflowX: 'hidden', fontFamily: "'Noto Sans Telugu', 'Plus Jakarta Sans', sans-serif" }}>
       {/* 1. TOP ANNOUNCEMENT & NAVBAR */}
-      <div style={{ background: 'linear-gradient(90deg, #15803d, #0f766e)', padding: '6px 16px', textAlign: 'center', fontSize: '0.78rem', fontWeight: 600, letterSpacing: '0.02em', color: 'white' }}>
+      <div className="landing-announcement">
         🚀 {t.heroBadge} • <span style={{ textDecoration: 'underline', cursor: 'pointer' }} onClick={() => setIsRegisterOpen(true)}>{t.heroCtaStart}</span>
       </div>
 
-      <header style={{ position: 'sticky', top: 0, zIndex: 50, backdropFilter: 'blur(16px)', background: 'rgba(2, 6, 23, 0.85)', borderBottom: '1px solid #1e293b', padding: '14px 24px' }}>
-        <div style={{ maxWidth: '1240px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'linear-gradient(135deg, #16a34a, #0f766e)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Store size={22} color="white" />
-            </div>
-            <div>
-              <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'white', letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                {t.appName} <span style={{ fontSize: '0.65rem', background: '#16a34a', color: 'white', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>SAAS</span>
+      <header className="landing-header">
+        <div className="landing-header-inner">
+          <div className="landing-brand-row">
+            <div className="landing-brand" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+              <div className="landing-brand-logo">
+                <Store size={20} color="white" />
               </div>
-              <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>{t.companyName} • {t.tagline}</div>
+              <div className="landing-brand-text">
+                <div className="landing-brand-title">
+                  <span>{t.appName}</span> <span style={{ fontSize: '0.62rem', background: '#16a34a', color: 'white', padding: '1px 5px', borderRadius: '4px', fontWeight: 700 }}>SAAS</span>
+                </div>
+                <div className="landing-brand-sub">{t.companyName} • {t.tagline}</div>
+              </div>
+            </div>
+
+            {/* Mobile-only Top-Right Language Toggle */}
+            <div className="landing-mobile-lang">
+              <button
+                onClick={toggleLanguage}
+                className="landing-btn-lang"
+                title={language === 'te' ? 'Switch to English' : 'తెలుగులోకి మార్చండి'}
+              >
+                <Languages size={14} />
+                <span>{language === 'te' ? 'EN' : 'తెలుగు'}</span>
+              </button>
             </div>
           </div>
 
-          <nav style={{ display: 'flex', alignItems: 'center', gap: '24px' }} className="landing-nav">
+          <nav className="landing-nav">
             <a href="#features" style={{ color: '#cbd5e1', textDecoration: 'none', fontSize: '0.88rem', fontWeight: 600 }}>{t.navFeatures}</a>
             <a href="#how-it-works" style={{ color: '#cbd5e1', textDecoration: 'none', fontSize: '0.88rem', fontWeight: 600 }}>{t.navHowItWorks}</a>
             <a href="#pricing" style={{ color: '#cbd5e1', textDecoration: 'none', fontSize: '0.88rem', fontWeight: 600 }}>{t.navPricing}</a>
             <a href="#faq" style={{ color: '#cbd5e1', textDecoration: 'none', fontSize: '0.88rem', fontWeight: 600 }}>{t.navFaq}</a>
           </nav>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            {/* Language Switcher Toggle */}
+          <div className="landing-actions">
+            {/* Desktop Language Switcher */}
             <button
               onClick={toggleLanguage}
-              style={{
-                background: 'rgba(56, 189, 248, 0.12)',
-                border: '1px solid rgba(56, 189, 248, 0.3)',
-                color: '#38bdf8',
-                padding: '6px 12px',
-                borderRadius: '8px',
-                fontSize: '0.8rem',
-                fontWeight: 800,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px'
-              }}
+              className="landing-btn-lang landing-desktop-lang"
               title={language === 'te' ? 'Switch to English' : 'తెలుగులోకి మార్చండి'}
             >
-              <Languages size={15} />
-              <span>{language === 'te' ? 'English' : 'తెలుగు'}</span>
+              <Languages size={14} />
+              <span>{language === 'te' ? 'EN' : 'తెలుగు'}</span>
             </button>
 
             <button
               onClick={() => setIsStatusModalOpen(true)}
-              style={{ background: 'transparent', border: '1px solid #334155', color: '#cbd5e1', padding: '7px 14px', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+              className="landing-btn-status"
+              title={t.navCheckStatus}
             >
               <Search size={14} />
-              <span>{t.navCheckStatus}</span>
+              <span className="landing-check-status-text">{t.navCheckStatus}</span>
             </button>
 
             <button
               onClick={onOpenStoreLogin}
-              style={{ background: '#1e293b', border: '1px solid #334155', color: 'white', padding: '7px 14px', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer' }}
+              className="landing-btn-login"
             >
               {t.navStoreLogin}
             </button>
 
             <button
               onClick={() => setIsRegisterOpen(true)}
-              className="btn btn-primary"
-              style={{ background: '#16a34a', borderColor: '#16a34a', padding: '7px 16px', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 700 }}
+              className="landing-btn-register"
             >
-              <span>{t.navRegisterStore}</span>
-              <ArrowRight size={14} />
+              <span className="long-label">{t.navRegisterStore}</span>
+              <span className="short-label">{language === 'te' ? 'నమోదు చేయండి' : 'Register Store'}</span>
+              <ArrowRight size={13} />
             </button>
           </div>
         </div>
       </header>
 
       {/* 2. HERO SECTION */}
-      <section style={{ padding: '70px 24px 60px 24px', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
+      <section className="landing-hero-section">
         <div style={{ maxWidth: '920px', margin: '0 auto', position: 'relative', zIndex: 2 }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'rgba(22, 163, 74, 0.12)', border: '1px solid rgba(22, 163, 74, 0.3)', borderRadius: '24px', padding: '6px 14px', marginBottom: '22px', fontSize: '0.82rem', color: '#4ade80', fontWeight: 600 }}>
             <Sparkles size={15} />
             <span>{t.heroBadge}</span>
           </div>
 
-          <h1 style={{ fontSize: 'clamp(2.4rem, 5.5vw, 4rem)', fontWeight: 800, lineHeight: 1.25, letterSpacing: '-0.02em', margin: '0 0 20px 0', color: 'white' }}>
+          <h1 style={{ fontSize: 'clamp(2.2rem, 5.5vw, 4rem)', fontWeight: 800, lineHeight: 1.25, letterSpacing: '-0.02em', margin: '0 0 20px 0', color: 'white' }}>
             {t.heroHeadline1} <br />
             <span style={{ background: 'linear-gradient(135deg, #4ade80, #38bdf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
               {t.heroHeadline2}
@@ -259,7 +262,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             {t.heroDescription}
           </p>
 
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '14px', flexWrap: 'wrap', marginBottom: '40px' }}>
+          <div className="landing-hero-cta-group">
             <button
               onClick={() => setIsRegisterOpen(true)}
               className="btn btn-primary"
@@ -280,7 +283,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
 
           {/* Quick Metrics */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid #334155', borderRadius: '14px', padding: '20px' }}>
+          <div className="landing-metrics-grid">
             <div>
               <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'white' }}>120+</div>
               <div style={{ fontSize: '0.78rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 600 }}>{t.metricActiveStores}</div>
